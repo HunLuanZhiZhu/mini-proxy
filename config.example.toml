@@ -21,11 +21,18 @@ rotate_size_mb = 50
 rotate_keep = 7
 
 # ┌─────────────────────────────────────────────────────────────┐
+# │ 对外服务端点                                                │
+# └─────────────────────────────────────────────────────────────┘
+# 客户端访问以下两个路径，分别对应两种协议：
+#   OpenAI 协议：  POST /chat/completions   （或带任意前缀如 /v1/chat/completions）
+#   Claude 协议： POST /messages            （或带任意前缀如 /v1/messages）
+# 路径只看后缀，前缀随意。客户端无需 API Key（由 config 注入或透传）。
+
+# ┌─────────────────────────────────────────────────────────────┐
 # │ 示例配置（参考用，取消下面的注释并按需修改）                  │
 # └─────────────────────────────────────────────────────────────┘
 #
-# provider 级字段（api_key/models/model_map/max_retries 等）可被两种协议共用
-# endpoint 级（[provider.openai] / [provider.claude]）同名字段覆盖 provider 级
+# provider 级字段可被两种协议共用，endpoint 级（.openai / .claude）同名字段覆盖之
 #
 # [[provider]]
 # name = "xfyun-main"
@@ -37,8 +44,9 @@ rotate_keep = 7
 # [provider.model_map]
 # "client-gpt4" = "xopglm52"
 # "client-claude" = "xopglm51"
+# # 同渠道同模型最大重试次数（总尝试 = max_retries + 1）
 # max_retries = 100
-# # retry_on_status 留空则使用默认范围（参考 new-api）
+# # retry_on_status 留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
 # # 永远不重试 504 和 524
 # retry_on_status = []
 # # key_mode = "override"（默认）：用 config 的 api_key 覆盖客户端 Key
@@ -46,14 +54,15 @@ rotate_keep = 7
 # key_mode = "override"
 #
 # [provider.openai]
-# # OpenAI 协议
+# # OpenAI 协议（仅 base_url 与 claude 不同，其他字段继承 provider 级）
 # # path_mode = "append"（默认）：上游 URL = base_url + /chat/completions
 # # path_mode = "full"：base_url 原样使用，不补路径
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
-# # api_key/max_retries 等未写则继承 provider 级
+# # 如需覆盖 provider 级字段，在此填写即可，例如：
+# # api_key = "openai-专用-key"
+# # max_retries = 50
 #
 # [provider.claude]
-# # Claude 协议
+# # Claude 协议（仅 base_url 与 openai 不同，其他字段继承 provider 级）
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
-# # 若两种协议的 api_key 不同，可在此覆盖
-# # api_key = "claude-专用-key"
+# # 同样可在此覆盖 provider 级任意字段
