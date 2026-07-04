@@ -43,32 +43,33 @@ impl UpstreamClient {
         let url = self.upstream_url(ep, protocol);
         let mut req = self.http.request(Method::POST, &url);
 
-        // 鉴权头处理：override 用 config 的 api_key，passthrough 透传客户端原 Key
-        match ep.key_mode {
-            KeyMode::Override => {
-                req = match protocol {
-                    Protocol::OpenAI => req.bearer_auth(&ep.api_key),
-                    Protocol::Claude => req
-                        .header("x-api-key", &ep.api_key)
-                        .header("anthropic-version", "2023-06-01"),
-                };
+        // 鉴权头处理：
+        //   override + api_key 非空：用 config 的 api_key 覆盖客户端 Key
+        //   override + api_key 为空：回退到 passthrough 行为
+        //   passthrough：透传客户端原 Key，config 不存储不管理
+        let use_override = matches!(ep.key_mode, KeyMode::Override) && !ep.api_key.is_empty();
+        if use_override {
+            req = match protocol {
+                Protocol::OpenAI => req.bearer_auth(&ep.api_key),
+                Protocol::Claude => req
+                    .header("x-api-key", &ep.api_key)
+                    .header("anthropic-version", "2023-06-01"),
+            };
+        } else {
+            // 透传客户端鉴权头（authorization / x-api-key）
+            // anthropic-version 若客户端未带则补默认值
+            let mut has_anthropic_version = false;
+            for (name, value) in client_headers.iter() {
+                let name_lower = name.as_str().to_lowercase();
+                if name_lower == "authorization" || name_lower == "x-api-key" {
+                    req = req.header(name, value);
+                }
+                if name_lower == "anthropic-version" {
+                    has_anthropic_version = true;
+                }
             }
-            KeyMode::Passthrough => {
-                // 透传客户端鉴权头（authorization / x-api-key），不存储不管理
-                // anthropic-version 若客户端未带则补默认值
-                let mut has_anthropic_version = false;
-                for (name, value) in client_headers.iter() {
-                    let name_lower = name.as_str().to_lowercase();
-                    if name_lower == "authorization" || name_lower == "x-api-key" {
-                        req = req.header(name, value);
-                    }
-                    if name_lower == "anthropic-version" {
-                        has_anthropic_version = true;
-                    }
-                }
-                if protocol == Protocol::Claude && !has_anthropic_version {
-                    req = req.header("anthropic-version", "2023-06-01");
-                }
+            if protocol == Protocol::Claude && !has_anthropic_version {
+                req = req.header("anthropic-version", "2023-06-01");
             }
         }
 

@@ -107,7 +107,7 @@ pub enum KeyMode {
 }
 
 impl Default for KeyMode {
-    fn default() -> Self { KeyMode::Override }
+    fn default() -> Self { KeyMode::Passthrough }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]

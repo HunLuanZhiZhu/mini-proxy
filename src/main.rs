@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
         println!("  mini-proxy              运行服务（默认读 config.toml）");
         println!("  mini-proxy -h|--help    显示此帮助（含配置模板）");
         println!("  MINI_PROXY_CONFIG=xxx.toml mini-proxy   指定配置文件\n");
-        println!("首次运行若未发现 config.toml，会自动生成示例配置并退出。\n");
+        println!("首次运行若未发现 config.toml，会生成默认配置并直接启动（无需填 key）。\n");
         println!("对外服务端点:");
         println!("  POST /v1/chat/completions  → OpenAI 协议（/v1 前缀）");
         println!("  POST /v2/messages          → Claude 协议（/v2 前缀）\n");
@@ -38,13 +38,11 @@ async fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config.toml"));
 
-    // 首次运行：config.toml 不存在 → 生成并退出
+    // 首次运行：config.toml 不存在 → 生成并直接启动（默认 passthrough 无需填 key）
     if !config_path.exists() {
         println!("未发现配置文件：{}", config_path.display());
-        println!("已自动生成示例配置，请填写真实配置后重新启动。");
+        println!("已生成默认配置并启动，如需修改请编辑后重启。");
         std::fs::write(&config_path, EXAMPLE_CONFIG)?;
-        // 退出，不启动服务
-        return Ok(());
     }
 
     let cfg = config::Config::load(&config_path)?;

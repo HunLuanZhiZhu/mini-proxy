@@ -1,69 +1,70 @@
 # mini-proxy 配置文件
-# 首次运行时自动生成，请填写真实配置后重新启动
-# 所有以 # 开头的行是注释，不影响运行
+# 首次运行自动生成，默认配置即可直接使用，无需填写 API Key
+
+# ════════════════════════════════════════════════════════════
+# 字段说明（修改时参考此部分）
+# ════════════════════════════════════════════════════════════
+#
+# [server]
+#   listen          本地监听地址，客户端访问 http://<listen>
+#
+# [log]
+#   level           日志级别：trace | debug | info | warn | error
+#   format          输出格式：pretty（彩色） | json
+#   to_stdout       是否输出到控制台
+#   to_file         文件输出路径，留空则不写文件
+#   rotate_size_mb  单文件大小上限（MB），超过则滚动
+#   rotate_keep     保留历史文件数量
+#
+# [[provider]]
+#   name            供应商名称（仅用于日志标识）
+#   api_key         API Key（仅 key_mode = "override" 时使用，为空则透传客户端 Key）
+#   models          支持的模型列表（客户端请求的 model 字段需在此列表中）
+#   model_map       模型 ID 映射：客户端模型名 → 上游模型名（通常不需要，默认同名透传）
+#   max_retries     同渠道同模型最大重试次数（总尝试 = max_retries + 1），默认 100
+#   retry_on_status 触发重试的状态码，支持单值 429 或范围字符串 "500-504"
+#                   留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
+#                   永远不重试 504 和 524
+#   key_mode        API Key 模式：
+#                     "passthrough"（默认）：保留客户端原 Key，config 不存储不管理
+#                     "override"：用 config 的 api_key 覆盖客户端 Key（api_key 为空时回退到 passthrough）
+#   path_mode       上游 URL 拼接模式：
+#                     "append"（默认）：上游 URL = base_url + /chat/completions（openai）或 /messages（claude）
+#                     "full"：base_url 原样使用，不补路径
+#
+# [provider.openai]   OpenAI 协议端点，base_url 与 claude 不同时在此填写
+# [provider.claude]   Claude 协议端点，base_url 与 openai 不同时在此填写
+#   以上两个端点的字段继承 provider 级，同名时覆盖之
+#
+# 对外服务端点：
+#   POST http://127.0.0.1:7946/v1/chat/completions  → OpenAI 协议（/v1 前缀）
+#   POST http://127.0.0.1:7946/v2/messages          → Claude 协议（/v2 前缀）
+
+# ════════════════════════════════════════════════════════════
+# 可运行配置（默认即可使用，按需修改）
+# ════════════════════════════════════════════════════════════
 
 [server]
-# 本地监听地址，客户端访问此端口
 listen = "127.0.0.1:7946"
 
 [log]
-# 日志级别：trace | debug | info | warn | error
 level = "info"
-# 输出格式：pretty（彩色） | json
 format = "pretty"
-# 是否输出到 stdout
 to_stdout = true
-# 文件输出路径，留空则不写文件
 to_file = "logs/proxy.log"
-# 单文件大小上限（MB），超过则滚动
 rotate_size_mb = 50
-# 保留历史文件数量
 rotate_keep = 7
-
-# ┌─────────────────────────────────────────────────────────────┐
-# │ 对外服务端点                                                │
-# └─────────────────────────────────────────────────────────────┘
-# 客户端访问以下两个路径，分别对应两种协议：
-#   OpenAI 协议：  POST /v1/chat/completions   （/v1 前缀 → OpenAI）
-#   Claude 协议： POST /v2/messages            （/v2 前缀 → Claude）
-# 路径只看 /v1 或 /v2 前缀，后缀随意。客户端无需 API Key（由 config 注入或透传）。
-
-# ┌─────────────────────────────────────────────────────────────┐
-# │ 示例配置（参考用，取消下面的注释并按需修改）                  │
-# └─────────────────────────────────────────────────────────────┘
-#
-# provider 级字段可被两种协议共用，endpoint 级（.openai / .claude）同名字段覆盖之
 
 [[provider]]
 name = "xfyun-main"
-# 以下字段写在 provider 级时，openai 和 claude 两个 endpoint 共用
-api_key = "6598d91da17d77b3112ba285e4f1fa05:NTJjZmZmN2I3ZjJkZTE1MzNmYWI3NDZi"
+api_key = ""
 models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
-# 同渠道同模型最大重试次数（总尝试 = max_retries + 1）
 max_retries = 100
-# 触发重试的状态码：支持单值 429 或范围字符串 "500-504"
-# 留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
-# 永远不重试 504 和 524
 retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
-# key_mode = "override"（默认）：用 config 的 api_key 覆盖客户端 Key
-# key_mode = "passthrough"：保留客户端原 Key，config 不存储不管理
-key_mode = "override"
-# 模型 ID 映射：客户端模型名 → 上游模型名，未配置则同名透传（通常不需要，默认即可）
-# TOML 支持带引号的字符串键
-## [provider.model_map]
-## "client-gpt4" = "xopglm52"
-## "client-claude" = "xopglm51"
+key_mode = "passthrough"
 
 [provider.openai]
-# OpenAI 协议（仅 base_url 与 claude 不同，其他字段继承 provider 级）
-# path_mode = "append"（默认）：上游 URL = base_url + /chat/completions
-# path_mode = "full"：base_url 原样使用，不补路径
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
-# 如需覆盖 provider 级字段，在此填写即可，例如：
-# api_key = "openai-专用-key"
-# max_retries = 50
 
 [provider.claude]
-# Claude 协议（仅 base_url 与 openai 不同，其他字段继承 provider 级）
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
-# 同样可在此覆盖 provider 级任意字段
