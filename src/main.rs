@@ -27,8 +27,12 @@ async fn main() -> Result<()> {
         println!("  MINI_PROXY_CONFIG=xxx.toml mini-proxy   指定配置文件\n");
         println!("首次运行若未发现 config.toml，会生成默认配置并直接启动（无需填 key）。\n");
         println!("对外服务端点:");
-        println!("  POST /v1/chat/completions  → OpenAI 协议（/v1 前缀）");
-        println!("  POST /v2/messages          → Claude 协议（/v2 前缀）\n");
+        println!("  完整路径：");
+        println!("    POST http://127.0.0.1:7946/v1/chat/completions  → OpenAI 协议");
+        println!("    POST http://127.0.0.1:7946/v2/messages          → Claude 协议");
+        println!("  通常填写（SDK base_url）：");
+        println!("    http://127.0.0.1:7946/v1   → OpenAI 协议");
+        println!("    http://127.0.0.1:7946/v2   → Claude 协议\n");
         println!("===== 配置模板（config.toml）=====");
         print!("{}", EXAMPLE_CONFIG);
         return Ok(());
@@ -83,7 +87,19 @@ async fn main() -> Result<()> {
     let app = server::build(state);
 
     let listener = tokio::net::TcpListener::bind(&cfg.server.listen).await?;
-    tracing::info!(listen = %cfg.server.listen, "服务启动完成，监听本地端口");
+    tracing::info!(listen = %cfg.server.listen, "服务启动完成");
+    println!();
+    println!("═══════════════════════════════════════════════════════════");
+    println!("  mini-proxy 已启动，监听 {}", cfg.server.listen);
+    println!();
+    println!("  对外服务端点：");
+    println!("    完整路径：");
+    println!("      POST http://{}/v1/chat/completions  → OpenAI 协议", cfg.server.listen);
+    println!("      POST http://{}/v2/messages          → Claude 协议", cfg.server.listen);
+    println!("    通常填写（SDK base_url）：");
+    println!("      http://{}/v1   → OpenAI 协议", cfg.server.listen);
+    println!("      http://{}/v2   → Claude 协议", cfg.server.listen);
+    println!("═══════════════════════════════════════════════════════════");
     axum::serve(listener, app).await?;
     Ok(())
 }
