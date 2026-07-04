@@ -17,6 +17,23 @@ const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 处理 -h / --help：输出配置模板
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("mini-proxy - 简洁版 AI API 代理（同渠道自动重试）\n");
+        println!("用法:");
+        println!("  mini-proxy              运行服务（默认读 config.toml）");
+        println!("  mini-proxy -h|--help    显示此帮助（含配置模板）");
+        println!("  MINI_PROXY_CONFIG=xxx.toml mini-proxy   指定配置文件\n");
+        println!("首次运行若未发现 config.toml，会自动生成示例配置并退出。\n");
+        println!("对外服务端点:");
+        println!("  POST /chat/completions  → OpenAI 协议");
+        println!("  POST /messages          → Claude 协议\n");
+        println!("===== 配置模板（config.toml）=====");
+        print!("{}", EXAMPLE_CONFIG);
+        return Ok(());
+    }
+
     let config_path = std::env::var("MINI_PROXY_CONFIG")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config.toml"));

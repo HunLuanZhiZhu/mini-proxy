@@ -121,13 +121,28 @@ impl Default for PathMode {
     fn default() -> Self { PathMode::Append }
 }
 
+// 支持单值 429 或范围字符串 "500-504"
+// 用 serde_json::Value 接收再手动解析，避开 flatten + untagged 空数组的类型推断 bug
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum StatusSpec {
-    Single(u16),
-    Range(String),
-}
+pub struct StatusSpec(pub serde_json::Value);
 
+impl StatusSpec {
+    pub fn to_range(&self) -> Option<std::ops::RangeInclusive<u16>> {
+        match &self.0 {
+            serde_json::Value::Number(n) => n.as_u64().map(|c| c as u16..=c as u16),
+            serde_json::Value::String(s) => {
+                if let Some((a, b)) = s.split_once('-') {
+                    let a = a.trim().parse::<u16>().ok()?;
+                    let b = b.trim().parse::<u16>().ok()?;
+                    Some(a..=b)
+                } else {
+                    s.trim().parse::<u16>().ok().map(|c| c..=c)
+                }
+            }
+            _ => None,
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub struct StatusMatcher {
     ranges: Vec<std::ops::RangeInclusive<u16>>,
@@ -135,21 +150,7 @@ pub struct StatusMatcher {
 
 impl StatusMatcher {
     pub fn from_specs(specs: &[StatusSpec]) -> Self {
-        let mut ranges = Vec::new();
-        for s in specs {
-            match s {
-                StatusSpec::Single(c) => ranges.push(*c..=*c),
-                StatusSpec::Range(r) => {
-                    if let Some((a, b)) = r.split_once('-') {
-                        if let (Ok(a), Ok(b)) = (a.parse::<u16>(), b.parse::<u16>()) {
-                            ranges.push(a..=b);
-                        }
-                    } else if let Ok(c) = r.parse::<u16>() {
-                        ranges.push(c..=c);
-                    }
-                }
-            }
-        }
+        let ranges: Vec<_> = specs.iter().filter_map(|s| s.to_range()).collect();
         StatusMatcher { ranges }
     }
 
@@ -163,13 +164,13 @@ impl StatusMatcher {
 // 永远跳过 504 和 524（alwaysSkipRetryStatusCodes）
 pub fn default_retry_specs() -> Vec<StatusSpec> {
     vec![
-        StatusSpec::Range("100-199".into()),
-        StatusSpec::Range("300-399".into()),
-        StatusSpec::Range("401-407".into()),
-        StatusSpec::Range("409-499".into()),
-        StatusSpec::Range("500-503".into()),
-        StatusSpec::Range("505-523".into()),
-        StatusSpec::Range("525-599".into()),
+        StatusSpec(serde_json::Value::String("100-199".into())),
+        StatusSpec(serde_json::Value::String("300-399".into())),
+        StatusSpec(serde_json::Value::String("401-407".into())),
+        StatusSpec(serde_json::Value::String("409-499".into())),
+        StatusSpec(serde_json::Value::String("500-503".into())),
+        StatusSpec(serde_json::Value::String("505-523".into())),
+        StatusSpec(serde_json::Value::String("525-599".into())),
     ]
 }
 
