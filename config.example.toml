@@ -6,7 +6,8 @@
 # ════════════════════════════════════════════════════════════
 #
 # [server]
-#   listen          本地监听地址，客户端访问 http://<listen>
+#   listen              本地监听地址，客户端访问 http://<listen>
+#   clean_empty_content 清洗请求体中 content 为空/空白的 input(messages) 项，避免上游报错（默认 true）
 #
 # [log]
 #   level           日志级别：trace | debug | info | warn | error
@@ -90,6 +91,7 @@
 
 [server]
 listen = "127.0.0.1:7946"
+clean_empty_content = true
 
 [log]
 level = "info"

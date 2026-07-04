@@ -18,6 +18,9 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub listen: String,
+    // 清洗请求体中 content 为空/空白的 input(messages) 项，避免上游报错
+    #[serde(default = "default_true")]
+    pub clean_empty_content: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

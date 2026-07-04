@@ -81,6 +81,12 @@ async fn handle(
         }
         tracing::info!(client_model = %client_model, upstream_model = %upstream_model, "模型名已映射");
     }
+
+    // 清洗请求体中 content 为空/空白的 input(messages) 项
+    if state.config.server.clean_empty_content {
+        clean_empty_messages(&mut parsed, protocol);
+    }
+
     let body_bytes = serde_json::to_vec(&parsed).unwrap_or_else(|_| body.to_vec());
     let body_bytes = Bytes::from(body_bytes);
 
@@ -120,6 +126,46 @@ fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoi
         }
     }
     None
+}
+
+// 清洗请求体中 content 为空/空白的 input(messages) 项
+// Response 协议用 input 数组，OpenAI/Anthropic 用 messages 数组
+fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
+    let field = match protocol {
+        Protocol::Responses => "input",
+        _ => "messages",
+    };
+
+    let Some(arr) = parsed.get_mut(field).and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+
+    let before = arr.len();
+    arr.retain(|item| {
+        // content 可能是字符串或数组
+        let content = item.get("content");
+        match content {
+            Some(Value::String(s)) => !s.trim().is_empty(),
+            Some(Value::Array(a)) => {
+                // 数组：检查是否有非空文本项
+                a.iter().any(|c| {
+                    if let Some(t) = c.get("text").and_then(|t| t.as_str()) {
+                        !t.trim().is_empty()
+                    } else if let Some(t) = c.get("content").and_then(|t| t.as_str()) {
+                        !t.trim().is_empty()
+                    } else {
+                        true // 无 text 字段的项保留
+                    }
+                })
+            }
+            None => true, // 无 content 字段的项保留
+            _ => true,
+        }
+    });
+    let removed = before - arr.len();
+    if removed > 0 {
+        tracing::info!(field, removed, "已清洗空白 content 消息项");
+    }
 }
 
 fn error_response(status: StatusCode, msg: &str) -> Response<Body> {

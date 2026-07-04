@@ -79,6 +79,11 @@ impl UpstreamClient {
 
         req = req.header("content-type", "application/json");
 
+        // 记录发往上游的请求体（便于排查格式问题）
+        if let Ok(body_str) = std::str::from_utf8(body) {
+            tracing::info!(upstream_url = %url, request_body = %body_str, "发送上游请求");
+        }
+
         let resp = req.body(body.clone()).send().await?;
 
         let status = StatusCode::from_u16(resp.status().as_u16())?;
