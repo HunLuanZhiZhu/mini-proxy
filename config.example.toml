@@ -37,7 +37,7 @@
 #
 # [provider.openai]       OpenAI 协议端点，后缀 /chat/completions
 # [provider.anthropic]    Anthropic 协议端点，后缀 /v1/messages
-# [provider.responses]    Response 协议端点，后缀 /v1/responses
+# [provider.responses]    Response 协议端点，后缀 /responses
 #   以上三个端点的字段继承 provider 级，同名时覆盖之
 #
 # 对外服务端点：
@@ -80,7 +80,7 @@
 #
 # [provider.responses]
 # # Response 协议（OpenAI /v1/responses 端点）
-# # append 模式补 /v1/responses；讯飞此地址已含完整路径，用 path_mode = "full"
+# # append 模式补 /responses；讯飞此地址已含完整路径，用 path_mode = "full"
 # path_mode = "full"
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"
 

@@ -28,7 +28,7 @@ impl Protocol {
         match self {
             Protocol::OpenAI => "/chat/completions",
             Protocol::Anthropic => "/v1/messages",
-            Protocol::Responses => "/v1/responses",
+            Protocol::Responses => "/responses",
         }
     }
 }
