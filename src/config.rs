@@ -194,7 +194,7 @@ impl Provider {
                 .clone()
                 .or_else(|| c.retry_on_status.clone())
                 .unwrap_or_default(),
-            max_retries: raw.max_retries.or(c.max_retries).unwrap_or(100),
+            max_retries: raw.max_retries.or(c.max_retries).unwrap_or(10000),
             path_mode: raw.path_mode.or(c.path_mode).unwrap_or_default(),
         })
     }

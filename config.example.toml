@@ -21,10 +21,11 @@
 #   api_key         API Key（仅 key_mode = "override" 时使用，为空则透传客户端 Key）
 #   models          支持的模型列表（客户端请求的 model 字段需在此列表中）
 #   model_map       模型 ID 映射：客户端模型名 → 上游模型名（通常不需要，默认同名透传）
-#   max_retries     同渠道同模型最大重试次数（总尝试 = max_retries + 1），默认 100
-#   retry_on_status 触发重试的状态码，支持单值 429 或范围字符串 "500-504"
+#   max_retries     同渠道同模型最大重试次数（总尝试 = max_retries + 1），默认 10000
+#   retry_on_status 触发重试的 HTTP 状态码，支持单值 429 或范围字符串 "500-504"
 #                   留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
 #                   永远不重试 504 和 524
+#                   讯飞业务错误码（11210 tpm超限、10012 引擎排队等）会映射到 HTTP 429/500/503，已被默认范围覆盖
 #   key_mode        API Key 模式：
 #                     "passthrough"（默认）：保留客户端原 Key，config 不存储不管理
 #                     "override"：用 config 的 api_key 覆盖客户端 Key（api_key 为空时回退到 passthrough）
@@ -52,7 +53,7 @@
 # name = "AstronCodingPlan"
 # api_key = "sk-your-real-key"           # 仅 override 模式需要，passthrough 可留空
 # models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
-# max_retries = 100
+# max_retries = 10000
 # retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
 # key_mode = "passthrough"               # override | passthrough（默认）
 # path_mode = "append"                   # append（默认） | full
@@ -90,7 +91,7 @@ rotate_keep = 7
 name = "AstronCodingPlan"
 api_key = ""
 models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
-max_retries = 100
+max_retries = 10000
 retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
 key_mode = "passthrough"
 
