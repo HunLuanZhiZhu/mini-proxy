@@ -43,8 +43,8 @@ impl UpstreamClient {
         let use_override = matches!(ep.key_mode, KeyMode::Override) && !ep.api_key.is_empty();
         if use_override {
             req = match protocol {
-                Protocol::OpenAI => req.bearer_auth(&ep.api_key),
-                Protocol::Claude => req
+                Protocol::OpenAI | Protocol::Responses => req.bearer_auth(&ep.api_key),
+                Protocol::Anthropic => req
                     .header("x-api-key", &ep.api_key)
                     .header("anthropic-version", "2023-06-01"),
             };
@@ -59,7 +59,7 @@ impl UpstreamClient {
                     has_anthropic_version = true;
                 }
             }
-            if protocol == Protocol::Claude && !has_anthropic_version {
+            if protocol == Protocol::Anthropic && !has_anthropic_version {
                 req = req.header("anthropic-version", "2023-06-01");
             }
         }

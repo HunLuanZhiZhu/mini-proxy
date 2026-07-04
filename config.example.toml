@@ -32,20 +32,23 @@
 #                     "passthrough"（默认）：保留客户端原 Key，config 不存储不管理
 #                     "override"：用 config 的 api_key 覆盖客户端 Key（api_key 为空时回退到 passthrough）
 #   path_mode       上游 URL 拼接模式：
-#                     "append"（默认）：上游 URL = base_url + /chat/completions（openai）或 /messages（claude）
+#                     "append"（默认）：上游 URL = base_url + 协议后缀（见下方）
 #                     "full"：base_url 原样使用，不补路径
 #
-# [provider.openai]   OpenAI 协议端点，base_url 与 claude 不同时在此填写
-# [provider.claude]   Claude 协议端点，base_url 与 openai 不同时在此填写
-#   以上两个端点的字段继承 provider 级，同名时覆盖之
+# [provider.openai]       OpenAI 协议端点，后缀 /chat/completions
+# [provider.anthropic]    Anthropic 协议端点，后缀 /v1/messages
+# [provider.responses]    Response 协议端点，后缀 /v1/responses
+#   以上三个端点的字段继承 provider 级，同名时覆盖之
 #
 # 对外服务端点：
 #   完整路径：
 #     POST http://127.0.0.1:7946/v1/chat/completions  → OpenAI 协议（/v1 前缀）
-#     POST http://127.0.0.1:7946/v2/messages          → Claude 协议（/v2 前缀）
+#     POST http://127.0.0.1:7946/v2/messages          → Anthropic 协议（/v2 前缀）
+#     POST http://127.0.0.1:7946/v3/responses         → Response 协议（/v3 前缀）
 #   通常填写（SDK base_url）：
 #     http://127.0.0.1:7946/v1   → OpenAI 协议
-#     http://127.0.0.1:7946/v2   → Claude 协议
+#     http://127.0.0.1:7946/v2   → Anthropic 协议
+#     http://127.0.0.1:7946/v3   → Response 协议
 
 # ════════════════════════════════════════════════════════════
 # 二、填写示例（完整字段展示，按需取消注释并修改）
@@ -71,9 +74,15 @@
 # # api_key = "openai-专用-key"
 # # max_retries = 50
 #
-# [provider.claude]
+# [provider.anthropic]
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
 # # 同样可在此覆盖 provider 级任意字段
+#
+# [provider.responses]
+# # Response 协议（OpenAI /v1/responses 端点）
+# # append 模式补 /v1/responses；讯飞此地址已含完整路径，用 path_mode = "full"
+# path_mode = "full"
+# base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"
 
 # ════════════════════════════════════════════════════════════
 # 三、可运行配置（默认即可使用，按需修改）
@@ -102,5 +111,9 @@ key_mode = "passthrough"
 [provider.openai]
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
 
-[provider.claude]
+[provider.anthropic]
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
+
+[provider.responses]
+path_mode = "full"
+base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"

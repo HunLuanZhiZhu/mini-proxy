@@ -73,7 +73,9 @@ pub struct Provider {
     #[serde(default)]
     pub openai: Option<EndpointRaw>,
     #[serde(default)]
-    pub claude: Option<EndpointRaw>,
+    pub anthropic: Option<EndpointRaw>,
+    #[serde(default)]
+    pub responses: Option<EndpointRaw>,
 }
 
 // 原始 endpoint 配置，字段全可选，缺失的从 provider 级取
@@ -225,8 +227,12 @@ impl Provider {
         self.openai.as_ref().and_then(|r| self.resolve_endpoint(r))
     }
 
-    pub fn claude_endpoint(&self) -> Option<Endpoint> {
-        self.claude.as_ref().and_then(|r| self.resolve_endpoint(r))
+    pub fn anthropic_endpoint(&self) -> Option<Endpoint> {
+        self.anthropic.as_ref().and_then(|r| self.resolve_endpoint(r))
+    }
+
+    pub fn responses_endpoint(&self) -> Option<Endpoint> {
+        self.responses.as_ref().and_then(|r| self.resolve_endpoint(r))
     }
 }
 

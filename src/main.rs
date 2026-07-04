@@ -29,10 +29,12 @@ async fn main() -> Result<()> {
         println!("对外服务端点:");
         println!("  完整路径：");
         println!("    POST http://127.0.0.1:7946/v1/chat/completions  → OpenAI 协议");
-        println!("    POST http://127.0.0.1:7946/v2/messages          → Claude 协议");
+        println!("    POST http://127.0.0.1:7946/v2/messages          → Anthropic 协议");
+        println!("    POST http://127.0.0.1:7946/v3/responses         → Response 协议");
         println!("  通常填写（SDK base_url）：");
         println!("    http://127.0.0.1:7946/v1   → OpenAI 协议");
-        println!("    http://127.0.0.1:7946/v2   → Claude 协议\n");
+        println!("    http://127.0.0.1:7946/v2   → Anthropic 协议");
+        println!("    http://127.0.0.1:7946/v3   → Response 协议\n");
         println!("===== 配置模板（config.toml）=====");
         print!("{}", EXAMPLE_CONFIG);
         return Ok(());
@@ -66,10 +68,21 @@ async fn main() -> Result<()> {
                 "已加载渠道"
             );
         }
-        if let Some(ep) = p.claude_endpoint() {
+        if let Some(ep) = p.anthropic_endpoint() {
             tracing::info!(
                 provider = %p.name,
-                protocol = "claude",
+                protocol = "anthropic",
+                base_url = %ep.base_url,
+                models = ?ep.models,
+                max_retries = ep.max_retries,
+                key_mode = ?ep.key_mode,
+                "已加载渠道"
+            );
+        }
+        if let Some(ep) = p.responses_endpoint() {
+            tracing::info!(
+                provider = %p.name,
+                protocol = "responses",
                 base_url = %ep.base_url,
                 models = ?ep.models,
                 max_retries = ep.max_retries,
@@ -95,10 +108,12 @@ async fn main() -> Result<()> {
     println!("  对外服务端点：");
     println!("    完整路径：");
     println!("      POST http://{}/v1/chat/completions  → OpenAI 协议", cfg.server.listen);
-    println!("      POST http://{}/v2/messages          → Claude 协议", cfg.server.listen);
+    println!("      POST http://{}/v2/messages          → Anthropic 协议", cfg.server.listen);
+    println!("      POST http://{}/v3/responses         → Response 协议", cfg.server.listen);
     println!("    通常填写（SDK base_url）：");
     println!("      http://{}/v1   → OpenAI 协议", cfg.server.listen);
-    println!("      http://{}/v2   → Claude 协议", cfg.server.listen);
+    println!("      http://{}/v2   → Anthropic 协议", cfg.server.listen);
+    println!("      http://{}/v3   → Response 协议", cfg.server.listen);
     println!("═══════════════════════════════════════════════════════════");
     axum::serve(listener, app).await?;
     Ok(())

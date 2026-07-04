@@ -110,7 +110,8 @@ fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoi
     for p in &cfg.provider {
         let ep = match protocol {
             Protocol::OpenAI => p.openai_endpoint(),
-            Protocol::Claude => p.claude_endpoint(),
+            Protocol::Anthropic => p.anthropic_endpoint(),
+            Protocol::Responses => p.responses_endpoint(),
         };
         if let Some(ep) = ep {
             if ep.models.iter().any(|m| m == model) {
