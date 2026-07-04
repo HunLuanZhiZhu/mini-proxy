@@ -17,32 +17,37 @@ const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 处理 -h / --help：输出配置模板
+    let config_path = std::env::var("MINI_PROXY_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("config.toml"));
+
+    // 处理 -h / --help：先尝试读 config 获取真实 listen
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
+        // 尝试从 config 读取 listen，失败则用默认值
+        let listen = config::Config::load(&config_path)
+            .map(|c| c.server.listen)
+            .unwrap_or_else(|_| "127.0.0.1:7946".to_string());
+
         println!("mini-proxy - 简洁版 AI API 代理（同渠道自动重试）\n");
         println!("用法:");
         println!("  mini-proxy              运行服务（默认读 config.toml）");
         println!("  mini-proxy -h|--help    显示此帮助（含配置模板）");
         println!("  MINI_PROXY_CONFIG=xxx.toml mini-proxy   指定配置文件\n");
         println!("首次运行若未发现 config.toml，会生成默认配置并直接启动（无需填 key）。\n");
-        println!("对外服务端点:");
+        println!("对外服务端点（当前 config listen={}）:", listen);
         println!("  完整路径：");
-        println!("    POST http://127.0.0.1:7946/v1/chat/completions  → OpenAI 协议");
-        println!("    POST http://127.0.0.1:7946/v2/messages          → Anthropic 协议");
-        println!("    POST http://127.0.0.1:7946/v3/responses         → Response 协议");
+        println!("    POST http://{}/v1/chat/completions  → OpenAI 协议", listen);
+        println!("    POST http://{}/v2/v1/messages        → Anthropic 协议", listen);
+        println!("    POST http://{}/v3/responses          → Response 协议", listen);
         println!("  通常填写（SDK base_url）：");
-        println!("    http://127.0.0.1:7946/v1   → OpenAI 协议");
-        println!("    http://127.0.0.1:7946/v2   → Anthropic 协议");
-        println!("    http://127.0.0.1:7946/v3   → Response 协议\n");
+        println!("    http://{}/v1   → OpenAI 协议", listen);
+        println!("    http://{}/v2   → Anthropic 协议", listen);
+        println!("    http://{}/v3   → Response 协议\n", listen);
         println!("===== 配置模板（config.toml）=====");
         print!("{}", EXAMPLE_CONFIG);
         return Ok(());
     }
-
-    let config_path = std::env::var("MINI_PROXY_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("config.toml"));
 
     // 首次运行：config.toml 不存在 → 生成并直接启动（默认 passthrough 无需填 key）
     if !config_path.exists() {
@@ -108,7 +113,7 @@ async fn main() -> Result<()> {
     println!("  对外服务端点：");
     println!("    完整路径：");
     println!("      POST http://{}/v1/chat/completions  → OpenAI 协议", cfg.server.listen);
-    println!("      POST http://{}/v2/messages          → Anthropic 协议", cfg.server.listen);
+    println!("      POST http://{}/v2/v1/messages        → Anthropic 协议", cfg.server.listen);
     println!("      POST http://{}/v3/responses         → Response 协议", cfg.server.listen);
     println!("    通常填写（SDK base_url）：");
     println!("      http://{}/v1   → OpenAI 协议", cfg.server.listen);
