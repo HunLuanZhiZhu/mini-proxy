@@ -1,9 +1,9 @@
 # mini-proxy 配置文件
-# 首次运行时自动生成，请填写真实 api_key 后重新启动
+# 首次运行时自动生成，请填写真实配置后重新启动
 # 所有以 # 开头的行是注释，不影响运行
 
 [server]
-# 本地监听地址，客户端直接访问此端口，无需 API Key
+# 本地监听地址，客户端访问此端口
 listen = "127.0.0.1:8787"
 
 [log]
@@ -35,10 +35,17 @@ rotate_keep = 7
 # # path_mode = "append"（默认）：上游 URL = base_url + /chat/completions
 # # path_mode = "full"：base_url 原样使用，不补路径
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
+# # key_mode = "override"（默认）：用 config 的 api_key 覆盖客户端 Key
+# # key_mode = "passthrough"：保留客户端原 Key，config 不存储不管理
 # api_key = "请填写真实 api_key"
 # models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
+# # 模型 ID 映射：客户端模型名 → 上游模型名，未配置则同名透传
+# # [provider.openai.model_map]
+# # "client-gpt4" = "xopglm52"
 # # 触发重试的状态码：支持单值 429 或范围字符串 "500-504"
-# retry_on_status = [429, "500-504"]
+# # 留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
+# # 永远不重试 504 和 524
+# retry_on_status = []
 # # 同渠道同模型最大重试次数（总尝试 = max_retries + 1）
 # max_retries = 3
 #
@@ -47,5 +54,5 @@ rotate_keep = 7
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
 # api_key = "请填写真实 api_key"
 # models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
-# retry_on_status = [429, "500-504", 529]
+# retry_on_status = []
 # max_retries = 2

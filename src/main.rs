@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
     // 首次运行：config.toml 不存在 → 生成并退出
     if !config_path.exists() {
         println!("未发现配置文件：{}", config_path.display());
-        println!("已自动生成示例配置，请填写真实 api_key 后重新启动。");
+        println!("已自动生成示例配置，请填写真实配置后重新启动。");
         std::fs::write(&config_path, EXAMPLE_CONFIG)?;
         // 退出，不启动服务
         return Ok(());
@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
     let app = server::build(state);
 
     let listener = tokio::net::TcpListener::bind(&cfg.server.listen).await?;
-    tracing::info!(listen = %cfg.server.listen, "服务启动完成，本地免 Key 访问");
+    tracing::info!(listen = %cfg.server.listen, "服务启动完成，监听本地端口");
     axum::serve(listener, app).await?;
     Ok(())
 }

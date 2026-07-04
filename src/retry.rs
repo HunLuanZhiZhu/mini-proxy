@@ -1,6 +1,6 @@
 // 重试循环：仅同渠道同模型重试，不跨渠道，无 sleep 间隔
 
-use crate::config::Endpoint;
+use crate::config::{is_always_skip, Endpoint};
 use crate::protocol::Protocol;
 use crate::upstream::UpstreamClient;
 use axum::body::Body;
@@ -30,8 +30,6 @@ pub async fn dispatch(
         tracing::info!(
             attempt = attempt + 1,
             total,
-            model = tracing::field::Empty,
-            channel = tracing::field::Empty,
             "开始第 {} 次尝试，共 {} 次",
             attempt + 1,
             total
@@ -41,6 +39,13 @@ pub async fn dispatch(
             Ok(resp) => {
                 let code = resp.status.as_u16();
                 tracing::info!(code, upstream_status = code, "上游返回状态码");
+
+                // 永远跳过（504/524）：直接返回，不重试
+                if is_always_skip(code) {
+                    tracing::warn!(code, "命中永远不重试状态码，直接返回");
+                    let r = resp.into_axum().await;
+                    return DispatchOutcome::Ok(r);
+                }
 
                 if matcher.matches(code) {
                     tracing::warn!(code, "命中可重试状态码，将重试");

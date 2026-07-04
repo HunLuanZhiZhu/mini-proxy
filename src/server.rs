@@ -10,18 +10,13 @@ use axum::http::{HeaderMap, Response, StatusCode};
 use axum::routing::{any, post};
 use axum::Router;
 use bytes::Bytes;
-use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
     pub client: Arc<UpstreamClient>,
-}
-
-#[derive(Deserialize)]
-struct ModelField {
-    model: Option<String>,
 }
 
 pub fn build(state: AppState) -> Router {
@@ -45,41 +40,61 @@ async fn handle(
         }
     };
 
-    // 解析 model 字段用于选渠道
-    let model = serde_json::from_slice::<ModelField>(&body)
-        .ok()
-        .and_then(|m| m.model)
-        .unwrap_or_default();
+    // 解析 body 取 model 字段用于选渠道，并做模型名映射
+    let mut parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "请求 body 不是合法 JSON");
+            return error_response(StatusCode::BAD_REQUEST, "请求 body 不是合法 JSON");
+        }
+    };
+
+    let client_model = parsed
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
 
     tracing::info!(
         path = %path,
         protocol = ?protocol,
-        model = %model,
+        model = %client_model,
         "收到请求"
     );
 
-    let endpoint = match pick_endpoint(&state.config, protocol, &model) {
+    let endpoint = match pick_endpoint(&state.config, protocol, &client_model) {
         Some(ep) => ep,
         None => {
-            tracing::warn!(?protocol, model = %model, "无可用渠道");
+            tracing::warn!(?protocol, model = %client_model, "无可用渠道");
             return error_response(
                 StatusCode::NOT_FOUND,
-                &format!("未找到匹配的渠道：协议 {:?}，模型 {}", protocol, model),
+                &format!("未找到匹配的渠道：协议 {:?}，模型 {}", protocol, client_model),
             );
         }
     };
+
+    // 模型名映射：客户端模型名 → 上游模型名
+    let upstream_model = endpoint.map_model(&client_model);
+    if upstream_model != client_model {
+        if let Some(obj) = parsed.as_object_mut() {
+            obj.insert("model".into(), Value::String(upstream_model.clone()));
+        }
+        tracing::info!(client_model = %client_model, upstream_model = %upstream_model, "模型名已映射");
+    }
+    let body_bytes = serde_json::to_vec(&parsed).unwrap_or_else(|_| body.to_vec());
+    let body_bytes = Bytes::from(body_bytes);
 
     let req_id = uuid::Uuid::now_v7();
     let span = tracing::info_span!(
         "request",
         request_id = %req_id,
         protocol = ?protocol,
-        model = %model,
+        model = %client_model,
         channel = %endpoint.base_url,
     );
     let _enter = span.enter();
 
-    match dispatch(&state.client, endpoint, protocol, &body, &headers).await {
+    match dispatch(&state.client, endpoint, protocol, &body_bytes, &headers).await {
         DispatchOutcome::Ok(r) => r,
         DispatchOutcome::Failed { status, body } => {
             let mut resp = Response::new(Body::from(body));

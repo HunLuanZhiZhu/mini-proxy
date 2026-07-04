@@ -1,6 +1,6 @@
 // 上游请求客户端与流式透传
 
-use crate::config::{Endpoint, PathMode};
+use crate::config::{Endpoint, KeyMode, PathMode};
 use crate::protocol::Protocol;
 use anyhow::Result;
 use axum::body::Body;
@@ -31,7 +31,8 @@ impl UpstreamClient {
         }
     }
 
-    // 发送一次请求，返回响应。流式与非流式统一处理，由调用方判断是否重试
+    // 发送一次请求，返回响应。
+    // body 内的 model 字段已被调用方替换为上游模型名
     pub async fn send(
         &self,
         ep: &Endpoint,
@@ -42,13 +43,34 @@ impl UpstreamClient {
         let url = self.upstream_url(ep, protocol);
         let mut req = self.http.request(Method::POST, &url);
 
-        // 注入鉴权头
-        req = match protocol {
-            Protocol::OpenAI => req.bearer_auth(&ep.api_key),
-            Protocol::Claude => req
-                .header("x-api-key", &ep.api_key)
-                .header("anthropic-version", "2023-06-01"),
-        };
+        // 鉴权头处理：override 用 config 的 api_key，passthrough 透传客户端原 Key
+        match ep.key_mode {
+            KeyMode::Override => {
+                req = match protocol {
+                    Protocol::OpenAI => req.bearer_auth(&ep.api_key),
+                    Protocol::Claude => req
+                        .header("x-api-key", &ep.api_key)
+                        .header("anthropic-version", "2023-06-01"),
+                };
+            }
+            KeyMode::Passthrough => {
+                // 透传客户端鉴权头（authorization / x-api-key），不存储不管理
+                // anthropic-version 若客户端未带则补默认值
+                let mut has_anthropic_version = false;
+                for (name, value) in client_headers.iter() {
+                    let name_lower = name.as_str().to_lowercase();
+                    if name_lower == "authorization" || name_lower == "x-api-key" {
+                        req = req.header(name, value);
+                    }
+                    if name_lower == "anthropic-version" {
+                        has_anthropic_version = true;
+                    }
+                }
+                if protocol == Protocol::Claude && !has_anthropic_version {
+                    req = req.header("anthropic-version", "2023-06-01");
+                }
+            }
+        }
 
         // 透传客户端业务头（剔除 hop-by-hop 与鉴权头，避免冲突）
         for (name, value) in client_headers.iter() {
