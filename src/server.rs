@@ -128,8 +128,9 @@ fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoi
     None
 }
 
-// 清洗请求体中 content 为空/空白的 input(messages) 项
-// Response 协议用 input 数组，OpenAI/Anthropic 用 messages 数组
+// 清洗请求体：
+// 1. Response 协议：补全 input 项缺失的 type: "message" 字段
+// 2. 所有协议：移除 content 为空/空白的 input(messages) 项
 fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
     let field = match protocol {
         Protocol::Responses => "input",
@@ -140,25 +141,40 @@ fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
         return;
     };
 
+    // Response 协议：补全缺失的 type: "message"
+    if matches!(protocol, Protocol::Responses) {
+        let mut patched = 0;
+        for item in arr.iter_mut() {
+            if let Some(obj) = item.as_object_mut() {
+                if !obj.contains_key("type") {
+                    obj.insert("type".into(), Value::String("message".into()));
+                    patched += 1;
+                }
+            }
+        }
+        if patched > 0 {
+            tracing::info!(patched, "已补全 input 项缺失的 type: \"message\"");
+        }
+    }
+
+    // 移除 content 为空/空白的项
     let before = arr.len();
     arr.retain(|item| {
-        // content 可能是字符串或数组
         let content = item.get("content");
         match content {
             Some(Value::String(s)) => !s.trim().is_empty(),
             Some(Value::Array(a)) => {
-                // 数组：检查是否有非空文本项
                 a.iter().any(|c| {
                     if let Some(t) = c.get("text").and_then(|t| t.as_str()) {
                         !t.trim().is_empty()
                     } else if let Some(t) = c.get("content").and_then(|t| t.as_str()) {
                         !t.trim().is_empty()
                     } else {
-                        true // 无 text 字段的项保留
+                        true
                     }
                 })
             }
-            None => true, // 无 content 字段的项保留
+            None => true,
             _ => true,
         }
     });

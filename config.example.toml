@@ -7,7 +7,7 @@
 #
 # [server]
 #   listen              本地监听地址，客户端访问 http://<listen>
-#   clean_empty_content 清洗请求体中 content 为空/空白的 input(messages) 项，避免上游报错（默认 true）
+#   clean_empty_content 清洗请求体：补全 input 项缺失的 type:"message"（Response 协议），移除 content 为空/空白的项（默认 true）
 #
 # [log]
 #   level           日志级别：trace | debug | info | warn | error
