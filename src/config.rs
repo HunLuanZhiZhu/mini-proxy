@@ -56,6 +56,9 @@ pub struct ProviderCommon {
     pub max_retries: Option<u32>,
     #[serde(default)]
     pub retry_on_status: Option<Vec<StatusSpec>>,
+    // 业务错误码重试：解析响应 body 中的 error.code 字段，命中则重试
+    #[serde(default)]
+    pub retry_on_code: Option<Vec<i64>>,
     #[serde(default)]
     pub key_mode: Option<KeyMode>,
     #[serde(default)]
@@ -82,6 +85,7 @@ pub struct EndpointRaw {
     pub model_map: Option<HashMap<String, String>>,
     pub max_retries: Option<u32>,
     pub retry_on_status: Option<Vec<StatusSpec>>,
+    pub retry_on_code: Option<Vec<i64>>,
     pub key_mode: Option<KeyMode>,
     pub path_mode: Option<PathMode>,
 }
@@ -95,6 +99,7 @@ pub struct Endpoint {
     pub models: Vec<String>,
     pub model_map: HashMap<String, String>,
     pub retry_on_status: Vec<StatusSpec>,
+    pub retry_on_code: Vec<i64>,
     pub max_retries: u32,
     pub path_mode: PathMode,
 }
@@ -178,6 +183,18 @@ pub fn is_always_skip(code: u16) -> bool {
     matches!(code, 504 | 524)
 }
 
+// 讯飞 Coding Plan 默认可重试业务错误码（响应 body 中的 error.code 字段）
+// 这些是临时性错误，可能随额度刷新/引擎恢复而成功：
+//   10007 流量受限、10008 服务容量不足、10009 引擎连接失败、10010 引擎排队、
+//   10012 引擎内部错误/排队、10110 服务忙、10222 引擎网络异常、10223 LB找不到引擎、
+//   11200 授权/业务量超限、11201 次数超限、11202 秒级流控、11203 并发流控、11210 tpm超限
+pub fn default_retry_codes() -> Vec<i64> {
+    vec![
+        10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223,
+        11200, 11201, 11202, 11203, 11210,
+    ]
+}
+
 impl Provider {
     // 合并 provider 级与 endpoint 级配置，endpoint 级优先
     pub fn resolve_endpoint(&self, raw: &EndpointRaw) -> Option<Endpoint> {
@@ -193,6 +210,11 @@ impl Provider {
                 .retry_on_status
                 .clone()
                 .or_else(|| c.retry_on_status.clone())
+                .unwrap_or_default(),
+            retry_on_code: raw
+                .retry_on_code
+                .clone()
+                .or_else(|| c.retry_on_code.clone())
                 .unwrap_or_default(),
             max_retries: raw.max_retries.or(c.max_retries).unwrap_or(10000),
             path_mode: raw.path_mode.or(c.path_mode).unwrap_or_default(),
@@ -216,6 +238,15 @@ impl Endpoint {
             self.retry_on_status.clone()
         };
         StatusMatcher::from_specs(&specs)
+    }
+
+    // 业务错误码列表：空则用默认（讯飞可重试码）
+    pub fn retry_codes(&self) -> Vec<i64> {
+        if self.retry_on_code.is_empty() {
+            default_retry_codes()
+        } else {
+            self.retry_on_code.clone()
+        }
     }
 
     // 模型名映射：未配置则原样返回

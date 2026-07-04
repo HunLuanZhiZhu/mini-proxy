@@ -22,7 +22,6 @@ impl UpstreamClient {
         Self { http }
     }
 
-    // 拼接上游 URL：path_mode = append 时按协议补后缀，full 时原样使用
     fn upstream_url(&self, ep: &Endpoint, protocol: Protocol) -> String {
         let base = ep.base_url.trim_end_matches('/');
         match ep.path_mode {
@@ -31,8 +30,6 @@ impl UpstreamClient {
         }
     }
 
-    // 发送一次请求，返回响应。
-    // body 内的 model 字段已被调用方替换为上游模型名
     pub async fn send(
         &self,
         ep: &Endpoint,
@@ -43,10 +40,6 @@ impl UpstreamClient {
         let url = self.upstream_url(ep, protocol);
         let mut req = self.http.request(Method::POST, &url);
 
-        // 鉴权头处理：
-        //   override + api_key 非空：用 config 的 api_key 覆盖客户端 Key
-        //   override + api_key 为空：回退到 passthrough 行为
-        //   passthrough：透传客户端原 Key，config 不存储不管理
         let use_override = matches!(ep.key_mode, KeyMode::Override) && !ep.api_key.is_empty();
         if use_override {
             req = match protocol {
@@ -56,8 +49,6 @@ impl UpstreamClient {
                     .header("anthropic-version", "2023-06-01"),
             };
         } else {
-            // 透传客户端鉴权头（authorization / x-api-key）
-            // anthropic-version 若客户端未带则补默认值
             let mut has_anthropic_version = false;
             for (name, value) in client_headers.iter() {
                 let name_lower = name.as_str().to_lowercase();
@@ -73,7 +64,6 @@ impl UpstreamClient {
             }
         }
 
-        // 透传客户端业务头（剔除 hop-by-hop 与鉴权头，避免冲突）
         for (name, value) in client_headers.iter() {
             let name_lower = name.as_str().to_lowercase();
             if matches!(
@@ -104,7 +94,8 @@ impl UpstreamClient {
             status,
             is_stream,
             headers: upstream_headers,
-            resp,
+            resp: Some(resp),
+            body_bytes: None,
         })
     }
 }
@@ -113,17 +104,43 @@ pub struct UpstreamResponse {
     pub status: StatusCode,
     pub is_stream: bool,
     pub headers: HeaderMap,
-    pub resp: reqwest::Response,
+    pub resp: Option<reqwest::Response>,
+    pub body_bytes: Option<Bytes>,
 }
 
 impl UpstreamResponse {
-    // 构造返回给客户端的 axum Response
-    // 非流式：读取完整 body 后返回
-    // 流式：把上游字节流接到 axum Body，不缓冲整体内容
+    // 非流式时预读 body 存入 body_bytes，供业务码判断
+    pub async fn preload_body(&mut self) {
+        if self.body_bytes.is_none() && !self.is_stream {
+            if let Some(resp) = self.resp.take() {
+                self.body_bytes = Some(
+                    resp.bytes()
+                        .await
+                        .unwrap_or_else(|_| Bytes::new()),
+                );
+            }
+        }
+    }
+
+    // 从已读 body 中解析业务错误码（error.code 字段）
+    // OpenAI 格式：{"error":{"code":11210,"message":"tpm超限"}}
+    // Anthropic 格式：{"error":{"type":"...","message":"..."}}
+    pub fn extract_error_code(&self) -> Option<i64> {
+        let bytes = self.body_bytes.as_ref()?;
+        let val: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        let code = val.get("error")?.get("code")?;
+        if let Some(n) = code.as_i64() {
+            return Some(n);
+        }
+        if let Some(s) = code.as_str() {
+            return s.parse::<i64>().ok();
+        }
+        None
+    }
+
     pub async fn into_axum(self) -> Response<Body> {
         let mut builder = Response::builder().status(self.status);
 
-        // 透传响应头（剔除 hop-by-hop）
         for (name, value) in self.headers.iter() {
             let name_lower = name.as_str().to_lowercase();
             if matches!(
@@ -140,12 +157,17 @@ impl UpstreamResponse {
         }
 
         if self.is_stream {
-            let stream = self.resp.bytes_stream();
+            let resp = self.resp.expect("流式响应已被消费");
+            let stream = resp.bytes_stream();
             let body = Body::from_stream(stream);
             builder.body(body).unwrap()
-        } else {
-            let bytes = self.resp.bytes().await.unwrap_or_else(|_| Bytes::new());
+        } else if let Some(bytes) = self.body_bytes {
             builder.body(Body::from(bytes)).unwrap()
+        } else if let Some(resp) = self.resp {
+            let bytes = resp.bytes().await.unwrap_or_else(|_| Bytes::new());
+            builder.body(Body::from(bytes)).unwrap()
+        } else {
+            builder.body(Body::empty()).unwrap()
         }
     }
 }

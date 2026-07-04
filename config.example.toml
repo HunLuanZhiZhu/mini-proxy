@@ -25,7 +25,9 @@
 #   retry_on_status 触发重试的 HTTP 状态码，支持单值 429 或范围字符串 "500-504"
 #                   留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
 #                   永远不重试 504 和 524
-#                   讯飞业务错误码（11210 tpm超限、10012 引擎排队等）会映射到 HTTP 429/500/503，已被默认范围覆盖
+#   retry_on_code   触发重试的业务错误码（响应 body 中 error.code 字段），整数数组
+#                   留空则使用讯飞默认码：10007,10008,10009,10010,10012,10110,10222,10223,11200,11201,11202,11203,11210
+#                   （流量受限/服务容量不足/引擎连接失败/排队/内部错误/服务忙/网络异常/LB找不到引擎/授权超限/次数超限/秒级流控/并发流控/tpm超限）
 #   key_mode        API Key 模式：
 #                     "passthrough"（默认）：保留客户端原 Key，config 不存储不管理
 #                     "override"：用 config 的 api_key 覆盖客户端 Key（api_key 为空时回退到 passthrough）
@@ -55,6 +57,7 @@
 # models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
 # max_retries = 10000
 # retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
+# retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210]
 # key_mode = "passthrough"               # override | passthrough（默认）
 # path_mode = "append"                   # append（默认） | full
 # # 模型 ID 映射（通常不需要，默认同名透传）
@@ -93,6 +96,7 @@ api_key = ""
 models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
 max_retries = 10000
 retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
+retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210]
 key_mode = "passthrough"
 
 [provider.openai]
