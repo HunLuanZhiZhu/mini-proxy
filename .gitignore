@@ -2,3 +2,4 @@
 /logs/
 config.toml
 *.log
+request_body.json
