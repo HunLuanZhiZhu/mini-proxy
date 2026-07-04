@@ -169,29 +169,46 @@ to_file = "logs/proxy.log"
 
 ## 客户端配置示例
 
-### Cursor
+### Cursor（OpenAI 协议 /v1）
 
 ```
 Override OpenAI Base URL: http://127.0.0.1:7946/v1
-OpenAI API Key: 任意值（passthrough 模式填真实 Key）
+OpenAI API Key: 你的 API Key
+模型: xopglm52
 ```
 
-### Claude Code
+### Claude Code（Anthropic 协议 /v2）
 
 ```json
 {
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "你的-key",
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:7946/v2"
+    "ANTHROPIC_AUTH_TOKEN": "你的 API Key",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:7946/v2",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
+    "API_TIMEOUT_MS": 600000,
+    "ANTHROPIC_MODEL": "xopglm52"
   }
 }
 ```
 
-### CodeX
+### CodeX（Response 协议 /v3）
 
+auth.json：
+```json
+{"OPENAI_API_KEY": "你的 API Key"}
+```
+
+config.toml：
 ```toml
+model_provider = "xf-api"
+model = "xopglm52"
+disable_response_storage = true
+preferred_auth_method = "apikey"
+
 [model_providers.xf-api]
-base_url = "http://127.0.0.1:7946/v1"
+name = "xf-api"
+base_url = "http://127.0.0.1:7946/v3"
+wire_api = "responses"
 ```
 
 ## 技术栈
