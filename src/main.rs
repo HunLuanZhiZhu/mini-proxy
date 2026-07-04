@@ -27,8 +27,8 @@ async fn main() -> Result<()> {
         println!("  MINI_PROXY_CONFIG=xxx.toml mini-proxy   指定配置文件\n");
         println!("首次运行若未发现 config.toml，会自动生成示例配置并退出。\n");
         println!("对外服务端点:");
-        println!("  POST /chat/completions  → OpenAI 协议");
-        println!("  POST /messages          → Claude 协议\n");
+        println!("  POST /v1/chat/completions  → OpenAI 协议（/v1 前缀）");
+        println!("  POST /v2/messages          → Claude 协议（/v2 前缀）\n");
         println!("===== 配置模板（config.toml）=====");
         print!("{}", EXAMPLE_CONFIG);
         return Ok(());

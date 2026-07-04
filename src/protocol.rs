@@ -1,4 +1,5 @@
 // 协议适配：OpenAI 与 Claude 两种，各自透传不做转换
+// 路由硬编码：/v1/* → OpenAI，/v2/* → Claude
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
@@ -7,12 +8,12 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    // 根据客户端访问路径后缀判定协议，不识别路径前缀（/v1、/api/xxx 等都接受）
+    // 按路径前缀判定协议：/v1 → OpenAI，/v2 → Claude
     pub fn from_path(path: &str) -> Option<Self> {
-        let p = path.trim_end_matches('/');
-        if p.ends_with("/chat/completions") {
+        let p = path.trim_start_matches('/');
+        if p.starts_with("v1") {
             Some(Protocol::OpenAI)
-        } else if p.ends_with("/messages") {
+        } else if p.starts_with("v2") {
             Some(Protocol::Claude)
         } else {
             None

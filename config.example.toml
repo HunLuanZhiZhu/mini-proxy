@@ -24,9 +24,9 @@ rotate_keep = 7
 # │ 对外服务端点                                                │
 # └─────────────────────────────────────────────────────────────┘
 # 客户端访问以下两个路径，分别对应两种协议：
-#   OpenAI 协议：  POST /chat/completions   （或带任意前缀如 /v1/chat/completions）
-#   Claude 协议： POST /messages            （或带任意前缀如 /v1/messages）
-# 路径只看后缀，前缀随意。客户端无需 API Key（由 config 注入或透传）。
+#   OpenAI 协议：  POST /v1/chat/completions   （/v1 前缀 → OpenAI）
+#   Claude 协议： POST /v2/messages            （/v2 前缀 → Claude）
+# 路径只看 /v1 或 /v2 前缀，后缀随意。客户端无需 API Key（由 config 注入或透传）。
 
 # ┌─────────────────────────────────────────────────────────────┐
 # │ 示例配置（参考用，取消下面的注释并按需修改）                  │
