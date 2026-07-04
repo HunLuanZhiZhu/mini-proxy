@@ -1,0 +1,23 @@
+[package]
+name = "mini-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+tower = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+bytes = "1"
+hyper = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+tracing-appender = "0.2"
+uuid = { version = "1", features = ["v7"] }
+anyhow = "1"
+thiserror = "1"
+http-body-util = "0.1"
+futures-util = "0.3"

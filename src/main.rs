@@ -1,0 +1,59 @@
+// mini-proxy 入口：加载配置 → 初始化日志 → 启动服务
+
+mod config;
+mod log;
+mod protocol;
+mod retry;
+mod server;
+mod upstream;
+
+use anyhow::Result;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let config_path = std::env::var("MINI_PROXY_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("config.toml"));
+
+    let cfg = config::Config::load(&config_path)?;
+    log::init(&cfg.log)?;
+    tracing::info!(config_path = %config_path.display(), "配置加载完成");
+
+    // 启动时打印渠道信息
+    for p in &cfg.provider {
+        if let Some(ep) = &p.openai {
+            tracing::info!(
+                provider = %p.name,
+                protocol = "openai",
+                base_url = %ep.base_url,
+                models = ?ep.models,
+                max_retries = ep.max_retries,
+                "已加载渠道"
+            );
+        }
+        if let Some(ep) = &p.claude {
+            tracing::info!(
+                provider = %p.name,
+                protocol = "claude",
+                base_url = %ep.base_url,
+                models = ?ep.models,
+                max_retries = ep.max_retries,
+                "已加载渠道"
+            );
+        }
+    }
+
+    let client = Arc::new(upstream::UpstreamClient::new());
+    let state = server::AppState {
+        config: Arc::new(cfg.clone()),
+        client,
+    };
+    let app = server::build(state);
+
+    let listener = tokio::net::TcpListener::bind(&cfg.server.listen).await?;
+    tracing::info!(listen = %cfg.server.listen, "服务启动完成，本地免 Key 访问");
+    axum::serve(listener, app).await?;
+    Ok(())
+}

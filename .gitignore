@@ -1,0 +1,4 @@
+/target/
+/logs/
+config.toml
+*.log
