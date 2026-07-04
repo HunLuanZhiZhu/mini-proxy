@@ -6,6 +6,7 @@ use anyhow::Result;
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Response, StatusCode};
 use bytes::Bytes;
+use futures_util::StreamExt;
 use reqwest::Client;
 use std::time::Duration;
 
@@ -96,6 +97,7 @@ impl UpstreamClient {
             headers: upstream_headers,
             resp: Some(resp),
             body_bytes: None,
+            preloaded_chunks: None,
         })
     }
 }
@@ -105,11 +107,15 @@ pub struct UpstreamResponse {
     pub is_stream: bool,
     pub headers: HeaderMap,
     pub resp: Option<reqwest::Response>,
+    // 非流式：完整 body
     pub body_bytes: Option<Bytes>,
+    // 流式：预读的 chunk 列表 + 剩余流
+    pub preloaded_chunks: Option<(Vec<Bytes>, Option<reqwest::Response>)>,
 }
 
 impl UpstreamResponse {
-    // 非流式时预读 body 存入 body_bytes，供业务码判断
+    // 非流式：读完整 body
+    // 流式：读前几个 chunk 累积到能判断是否含 error 为止
     pub async fn preload_body(&mut self) {
         if self.body_bytes.is_none() && !self.is_stream {
             if let Some(resp) = self.resp.take() {
@@ -119,22 +125,91 @@ impl UpstreamResponse {
                         .unwrap_or_else(|_| Bytes::new()),
                 );
             }
+            return;
+        }
+
+        // 流式：读前几个 chunk
+        if self.preloaded_chunks.is_none() && self.is_stream {
+            if let Some(resp) = self.resp.take() {
+                let mut chunks: Vec<Bytes> = Vec::new();
+                let mut stream = resp.bytes_stream();
+                let mut buf = String::new();
+
+                // 最多读 16 个 chunk 或 64KB，用于判断是否含 error
+                for _ in 0..16 {
+                    match stream.next().await {
+                        Some(Ok(chunk)) => {
+                            buf.push_str(&String::from_utf8_lossy(&chunk));
+                            chunks.push(chunk);
+                            // 检查是否已遇到 event: error 的 data 行
+                            if buf.contains("event: error")
+                                && buf.contains("\"error\":")
+                                && buf.contains("\"code\":")
+                            {
+                                break;
+                            }
+                            // 如果遇到有效内容事件（说明不是错误），也停止预读
+                            if buf.contains("response.output_text")
+                                || buf.contains("response.completed")
+                                || buf.contains("response.output_item")
+                            {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+
+                // 把剩余流存回去
+                // reqwest 的 bytes_stream 消费了 resp，无法还原
+                // 所以我们把已读 chunks 和「流已结束」标记存起来
+                self.preloaded_chunks = Some((chunks, None));
+            }
         }
     }
 
-    // 从已读 body 中解析业务错误码（error.code 字段）
-    // OpenAI 格式：{"error":{"code":11210,"message":"tpm超限"}}
-    // Anthropic 格式：{"error":{"type":"...","message":"..."}}
+    // 从已读内容中解析业务错误码
+    // 非流式：JSON 的 error.code 字段
+    // 流式：SSE 中 event: error 后的 data 里 error.code 字段
     pub fn extract_error_code(&self) -> Option<i64> {
-        let bytes = self.body_bytes.as_ref()?;
-        let val: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-        let code = val.get("error")?.get("code")?;
-        if let Some(n) = code.as_i64() {
-            return Some(n);
+        // 非流式
+        if let Some(bytes) = &self.body_bytes {
+            let val: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+            let code = val.get("error")?.get("code")?;
+            if let Some(n) = code.as_i64() {
+                return Some(n);
+            }
+            if let Some(s) = code.as_str() {
+                return s.parse::<i64>().ok();
+            }
+            return None;
         }
-        if let Some(s) = code.as_str() {
-            return s.parse::<i64>().ok();
+
+        // 流式：从预读 chunks 拼接后查找
+        if let Some((chunks, _)) = &self.preloaded_chunks {
+            let text: String = chunks
+                .iter()
+                .map(|c| String::from_utf8_lossy(c).to_string())
+                .collect::<String>();
+
+            // 查找所有 data: 行，解析 JSON，找 error.code
+            for line in text.lines() {
+                if line.starts_with("data:") {
+                    let json_str = line.trim_start_matches("data:").trim();
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        if let Some(code) = val.get("error").and_then(|e| e.get("code")) {
+                            if let Some(n) = code.as_i64() {
+                                return Some(n);
+                            }
+                            if let Some(s) = code.as_str() {
+                                return s.parse::<i64>().ok();
+                            }
+                        }
+                    }
+                }
+            }
         }
+
         None
     }
 
@@ -156,18 +231,36 @@ impl UpstreamResponse {
             }
         }
 
-        if self.is_stream {
-            let resp = self.resp.expect("流式响应已被消费");
+        // 非流式：用 body_bytes 或现读
+        if !self.is_stream {
+            if let Some(bytes) = self.body_bytes {
+                return builder.body(Body::from(bytes)).unwrap();
+            }
+            if let Some(resp) = self.resp {
+                let bytes = resp.bytes().await.unwrap_or_else(|_| Bytes::new());
+                return builder.body(Body::from(bytes)).unwrap();
+            }
+            return builder.body(Body::empty()).unwrap();
+        }
+
+        // 流式：用预读 chunks 拼接后整体返回
+        if let Some((chunks, _remaining)) = self.preloaded_chunks {
+            let total_len: usize = chunks.iter().map(|b| b.len()).sum();
+            let mut out = bytes::BytesMut::with_capacity(total_len);
+            for b in chunks {
+                out.extend_from_slice(&b);
+            }
+            return builder.body(Body::from(out.freeze())).unwrap();
+        }
+
+        // 未预读的流式：直接流式转发
+        if let Some(resp) = self.resp {
             let stream = resp.bytes_stream();
             let body = Body::from_stream(stream);
-            builder.body(body).unwrap()
-        } else if let Some(bytes) = self.body_bytes {
-            builder.body(Body::from(bytes)).unwrap()
-        } else if let Some(resp) = self.resp {
-            let bytes = resp.bytes().await.unwrap_or_else(|_| Bytes::new());
-            builder.body(Body::from(bytes)).unwrap()
-        } else {
-            builder.body(Body::empty()).unwrap()
+            return builder.body(body).unwrap();
         }
+
+        builder.body(Body::empty()).unwrap()
     }
 }
+

@@ -1,5 +1,5 @@
 // 重试循环：仅同渠道同模型重试，不跨渠道，无 sleep 间隔
-// 判断重试依据：HTTP 状态码范围 + 响应 body 中的业务错误码
+// 判断重试依据：HTTP 状态码范围 + 响应 body 中的业务错误码（含流式 SSE 中的 error 事件）
 
 use crate::config::{is_always_skip, Endpoint};
 use crate::protocol::Protocol;
@@ -48,17 +48,11 @@ pub async fn dispatch(
                     return DispatchOutcome::Ok(r);
                 }
 
-                // 流式响应已开始：不能再重试，直接返回
-                if resp.is_stream {
-                    tracing::info!("上游已开始流式响应，直接透传");
-                    let r = resp.into_axum().await;
-                    return DispatchOutcome::Ok(r);
-                }
-
-                // 非流式：预读 body 以检查业务错误码
+                // 预读完整 body（流式和非流式都读）
+                // 讯飞可能在流中途发 event:error，需完整读才能判断
                 resp.preload_body().await;
 
-                // 检查业务错误码（error.code 字段）
+                // 检查业务错误码（含流式 SSE 中的 error 事件）
                 let biz_code = resp.extract_error_code();
                 let biz_retry = biz_code
                     .map(|c| retry_codes.contains(&c))
