@@ -1,4 +1,6 @@
 // 配置结构与加载
+// Provider 级字段（api_key/models/model_map/max_retries 等）可被两种协议共用
+// Endpoint 级字段覆盖 Provider 级同名字段
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -41,46 +43,66 @@ fn default_true() -> bool { true }
 fn default_rotate_size() -> u64 { 50 }
 fn default_rotate_keep() -> usize { 7 }
 
+// Provider 级共用字段（可选），Endpoint 级同名字段覆盖之
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ProviderCommon {
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub models: Option<Vec<String>>,
+    #[serde(default)]
+    pub model_map: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub max_retries: Option<u32>,
+    #[serde(default)]
+    pub retry_on_status: Option<Vec<StatusSpec>>,
+    #[serde(default)]
+    pub key_mode: Option<KeyMode>,
+    #[serde(default)]
+    pub path_mode: Option<PathMode>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Provider {
     pub name: String,
+    #[serde(flatten)]
+    pub common: ProviderCommon,
     #[serde(default)]
-    pub openai: Option<Endpoint>,
+    pub openai: Option<EndpointRaw>,
     #[serde(default)]
-    pub claude: Option<Endpoint>,
+    pub claude: Option<EndpointRaw>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+// 原始 endpoint 配置，字段全可选，缺失的从 provider 级取
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct EndpointRaw {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub models: Option<Vec<String>>,
+    pub model_map: Option<HashMap<String, String>>,
+    pub max_retries: Option<u32>,
+    pub retry_on_status: Option<Vec<StatusSpec>>,
+    pub key_mode: Option<KeyMode>,
+    pub path_mode: Option<PathMode>,
+}
+
+// 合并后的有效 endpoint
+#[derive(Debug, Clone)]
 pub struct Endpoint {
     pub base_url: String,
-    // Key 模式：
-    //   override（默认）：用 config 中的 api_key 覆盖客户端发来的任意 Key
-    //   passthrough：不存储不管理，保留客户端请求中的原 Key 不变
-    #[serde(default)]
     pub api_key: String,
-    #[serde(default = "default_key_mode")]
     pub key_mode: KeyMode,
-    #[serde(default)]
     pub models: Vec<String>,
-    // 模型 ID 映射：客户端模型名 → 上游模型名，未配置则同名透传
-    #[serde(default)]
     pub model_map: HashMap<String, String>,
-    #[serde(default)]
     pub retry_on_status: Vec<StatusSpec>,
-    #[serde(default = "default_max_retries")]
     pub max_retries: u32,
-    #[serde(default)]
     pub path_mode: PathMode,
 }
-
-fn default_max_retries() -> u32 { 0 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyMode {
-    // 用 config 的 api_key 覆盖客户端 Key
     Override,
-    // 保留客户端请求中的原 Key，config 不存储不管理
     Passthrough,
 }
 
@@ -99,9 +121,6 @@ impl Default for PathMode {
     fn default() -> Self { PathMode::Append }
 }
 
-fn default_key_mode() -> KeyMode { KeyMode::Override }
-
-// 支持单值 429 或范围字符串 "500-504"
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum StatusSpec {
@@ -109,7 +128,6 @@ pub enum StatusSpec {
     Range(String),
 }
 
-// 状态码匹配器，预解析为范围集合
 #[derive(Debug, Clone)]
 pub struct StatusMatcher {
     ranges: Vec<std::ops::RangeInclusive<u16>>,
@@ -155,9 +173,38 @@ pub fn default_retry_specs() -> Vec<StatusSpec> {
     ]
 }
 
-// 永远不重试的状态码（即使落在 retry_on_status 范围内）
 pub fn is_always_skip(code: u16) -> bool {
     matches!(code, 504 | 524)
+}
+
+impl Provider {
+    // 合并 provider 级与 endpoint 级配置，endpoint 级优先
+    pub fn resolve_endpoint(&self, raw: &EndpointRaw) -> Option<Endpoint> {
+        let base_url = raw.base_url.clone().or_else(|| None)?;
+        let c = &self.common;
+        Some(Endpoint {
+            base_url,
+            api_key: raw.api_key.clone().or_else(|| c.api_key.clone()).unwrap_or_default(),
+            key_mode: raw.key_mode.or(c.key_mode).unwrap_or_default(),
+            models: raw.models.clone().or_else(|| c.models.clone()).unwrap_or_default(),
+            model_map: raw.model_map.clone().or_else(|| c.model_map.clone()).unwrap_or_default(),
+            retry_on_status: raw
+                .retry_on_status
+                .clone()
+                .or_else(|| c.retry_on_status.clone())
+                .unwrap_or_default(),
+            max_retries: raw.max_retries.or(c.max_retries).unwrap_or(100),
+            path_mode: raw.path_mode.or(c.path_mode).unwrap_or_default(),
+        })
+    }
+
+    pub fn openai_endpoint(&self) -> Option<Endpoint> {
+        self.openai.as_ref().and_then(|r| self.resolve_endpoint(r))
+    }
+
+    pub fn claude_endpoint(&self) -> Option<Endpoint> {
+        self.claude.as_ref().and_then(|r| self.resolve_endpoint(r))
+    }
 }
 
 impl Endpoint {

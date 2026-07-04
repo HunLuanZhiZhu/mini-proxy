@@ -36,23 +36,25 @@ async fn main() -> Result<()> {
 
     // 启动时打印渠道信息
     for p in &cfg.provider {
-        if let Some(ep) = &p.openai {
+        if let Some(ep) = p.openai_endpoint() {
             tracing::info!(
                 provider = %p.name,
                 protocol = "openai",
                 base_url = %ep.base_url,
                 models = ?ep.models,
                 max_retries = ep.max_retries,
+                key_mode = ?ep.key_mode,
                 "已加载渠道"
             );
         }
-        if let Some(ep) = &p.claude {
+        if let Some(ep) = p.claude_endpoint() {
             tracing::info!(
                 provider = %p.name,
                 protocol = "claude",
                 base_url = %ep.base_url,
                 models = ?ep.models,
                 max_retries = ep.max_retries,
+                key_mode = ?ep.key_mode,
                 "已加载渠道"
             );
         }

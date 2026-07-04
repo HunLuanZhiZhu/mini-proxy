@@ -94,7 +94,7 @@ async fn handle(
     );
     let _enter = span.enter();
 
-    match dispatch(&state.client, endpoint, protocol, &body_bytes, &headers).await {
+    match dispatch(&state.client, &endpoint, protocol, &body_bytes, &headers).await {
         DispatchOutcome::Ok(r) => r,
         DispatchOutcome::Failed { status, body } => {
             let mut resp = Response::new(Body::from(body));
@@ -105,11 +105,12 @@ async fn handle(
 }
 
 // 按协议 + 模型在 providers 中查找第一个匹配的 endpoint
-fn pick_endpoint<'a>(cfg: &'a Config, protocol: Protocol, model: &str) -> Option<&'a Endpoint> {
+// 返回合并后的 Endpoint（provider 级 + endpoint 级）
+fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoint> {
     for p in &cfg.provider {
         let ep = match protocol {
-            Protocol::OpenAI => p.openai.as_ref(),
-            Protocol::Claude => p.claude.as_ref(),
+            Protocol::OpenAI => p.openai_endpoint(),
+            Protocol::Claude => p.claude_endpoint(),
         };
         if let Some(ep) = ep {
             if ep.models.iter().any(|m| m == model) {
