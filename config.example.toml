@@ -1,4 +1,6 @@
-# 示例配置文件，复制为 config.toml 后修改使用
+# mini-proxy 配置文件
+# 首次运行时自动生成，请填写真实 api_key 后重新启动
+# 所有以 # 开头的行是注释，不影响运行
 
 [server]
 # 本地监听地址，客户端直接访问此端口，无需 API Key
@@ -18,49 +20,32 @@ rotate_size_mb = 50
 # 保留历史文件数量
 rotate_keep = 7
 
+# ┌─────────────────────────────────────────────────────────────┐
+# │ 示例配置（参考用，取消下面的注释并按需修改）                  │
+# └─────────────────────────────────────────────────────────────┘
+#
 # 一个 provider 可同时承载两种协议（openai + claude），各有独立配置
 # 也可只配其中一种
-
-[[provider]]
-name = "openai-main"
-
-[provider.openai]
-# OpenAI 协议 base_url
-# path_mode = "append"（默认）：上游 URL = base_url + /chat/completions
-#   例：https://api.openai.com/v1/chat/completions
-# path_mode = "full"：base_url 原样使用，不补路径
-base_url = "https://api.openai.com/v1"
-api_key = "sk-xxx"
-models = ["gpt-4o", "gpt-4o-mini"]
-# 触发重试的状态码：支持单值 429 或范围字符串 "500-504"
-retry_on_status = [429, "500-504"]
-# 同渠道同模型最大重试次数（总尝试 = max_retries + 1）
-max_retries = 3
-
-[[provider]]
-name = "claude-direct"
-
-[provider.claude]
-base_url = "https://api.anthropic.com"
-api_key = "sk-ant-xxx"
-models = ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
-retry_on_status = [429, "500-504", 529]
-max_retries = 2
-
-# 混合供应商示例：同一 provider 下两种协议各自独立 base_url
+#
 # [[provider]]
-# name = "azure-mixed"
+# name = "xfyun-main"
 #
 # [provider.openai]
-# base_url = "https://my-azure.openai.azure.com/openai/deployments/gpt-4o"
-# api_key = "xxx"
-# models = ["gpt-4o"]
+# # OpenAI 协议
+# # path_mode = "append"（默认）：上游 URL = base_url + /chat/completions
+# # path_mode = "full"：base_url 原样使用，不补路径
+# base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
+# api_key = "请填写真实 api_key"
+# models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
+# # 触发重试的状态码：支持单值 429 或范围字符串 "500-504"
 # retry_on_status = [429, "500-504"]
+# # 同渠道同模型最大重试次数（总尝试 = max_retries + 1）
 # max_retries = 3
 #
 # [provider.claude]
-# base_url = "https://my-azure-claude.example.com"
-# api_key = "yyy"
-# models = ["claude-3-5-sonnet-20241022"]
+# # Claude 协议
+# base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
+# api_key = "请填写真实 api_key"
+# models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
 # retry_on_status = [429, "500-504", 529]
 # max_retries = 2

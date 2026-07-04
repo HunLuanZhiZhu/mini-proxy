@@ -1,4 +1,5 @@
 // mini-proxy 入口：加载配置 → 初始化日志 → 启动服务
+// 首次运行若无 config.toml，自动生成并退出，提示用户填写后重启
 
 mod config;
 mod log;
@@ -11,11 +12,23 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+// 示例配置嵌入二进制，首次运行时写入磁盘
+const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let config_path = std::env::var("MINI_PROXY_CONFIG")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config.toml"));
+
+    // 首次运行：config.toml 不存在 → 生成并退出
+    if !config_path.exists() {
+        println!("未发现配置文件：{}", config_path.display());
+        println!("已自动生成示例配置，请填写真实 api_key 后重新启动。");
+        std::fs::write(&config_path, EXAMPLE_CONFIG)?;
+        // 退出，不启动服务
+        return Ok(());
+    }
 
     let cfg = config::Config::load(&config_path)?;
     log::init(&cfg.log)?;
