@@ -39,6 +39,11 @@
 #                     具体档位（如 "xhigh"/"max"/"high"）→ 强制覆盖客户端该字段
 #                     "passthrough" → 原样透传不修改
 #                     缺省 → 默认各协议最高档：OpenAI/Responses=xhigh，Anthropic=max
+#   headers         静态注入头（表）：客户端没带的键才补上，已有的不覆盖
+#                     典型用途：x-opencode-session（OpenCode Go API 要求携带的会话头）
+#                     三种协议主路径 + aux 辅助路径都生效；主路径下若能从请求体推导出
+#                     会话 ID（Anthropic 取 metadata.user_id 的 _session_ 后缀，
+#                     OpenAI/Responses 取 user 字段），推导值优先于静态值
 #
 # [provider.openai]       OpenAI 协议端点，后缀 /chat/completions
 # [provider.anthropic]    Anthropic 协议端点，后缀 /v1/messages
@@ -122,6 +127,9 @@ models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xop
 max_retries = 10000
 retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210, 10310]
 key_mode = "passthrough"
+
+# [provider.headers]
+# x-opencode-session = "6f1c2a34-90ab-4c5d-8e21-7b0a9c3d4e5f"   # 推导不出时的静态兜底值
 
 [provider.openai]
 thinking_effort = "xhigh"

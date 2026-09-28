@@ -8,7 +8,36 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Response, StatusCod
 use bytes::Bytes;
 use futures_util::{stream, StreamExt};
 use reqwest::Client;
+use serde_json::Value;
+use std::str::FromStr;
 use std::time::Duration;
+
+// OpenCode Go API 要求所有请求携带的会话头（用于会话路由 + prompt cache 亲和）
+pub const SESSION_HEADER: &str = "x-opencode-session";
+
+// 从请求体推导会话标识：
+//   Anthropic: metadata.user_id（claude.exe 格式为 user_<hash>_account_<uuid>_session_<uuid>，
+//              取 _session_ 后缀 → 每个对话一个稳定 ID）
+//   OpenAI/Responses: 顶层 user 字段
+// 字段缺失 / 非合法 JSON / 空串 → None，由调用方回退到 [provider.headers] 静态配置
+fn session_header_value(protocol: Protocol, body: &Bytes) -> Option<String> {
+    let v: Value = serde_json::from_slice(body).ok()?;
+    let raw = match protocol {
+        Protocol::Anthropic => v
+            .get("metadata")
+            .and_then(|m| m.get("user_id"))
+            .and_then(|u| u.as_str())?,
+        _ => v.get("user").and_then(|u| u.as_str())?,
+    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(match raw.rsplit_once("_session_") {
+        Some((_, s)) if !s.is_empty() => s.to_string(),
+        _ => raw.to_string(),
+    })
+}
 
 pub struct UpstreamClient {
     http: Client,
@@ -78,6 +107,36 @@ impl UpstreamClient {
         }
 
         req = req.header("content-type", "application/json");
+
+        // x-opencode-session：客户端没带才补。先从请求体推导，推导不出再用
+        // [provider.headers] 里的同名静态头兜底；客户端已带则原样透传不覆盖
+        if !client_headers.contains_key(SESSION_HEADER) {
+            match session_header_value(protocol, body) {
+                Some(s) => {
+                    tracing::info!(session = %s, "已注入会话头（来源：请求体推导）");
+                    if let Ok(hv) = HeaderValue::from_str(&s) {
+                        req = req.header(SESSION_HEADER, hv);
+                    }
+                }
+                None => {
+                    if let Some(v) = ep.headers.get(SESSION_HEADER) {
+                        tracing::info!("已注入会话头（来源：静态配置）");
+                        if let Ok(hv) = HeaderValue::from_str(v) {
+                            req = req.header(SESSION_HEADER, hv);
+                        }
+                    }
+                }
+            }
+        }
+        // 其余静态注入头：同样只补客户端没带的键
+        for (k, v) in &ep.headers {
+            if k.eq_ignore_ascii_case(SESSION_HEADER) || client_headers.contains_key(k.as_str()) {
+                continue;
+            }
+            if let (Ok(hk), Ok(hv)) = (HeaderName::from_str(k), HeaderValue::from_str(v)) {
+                req = req.header(hk, hv);
+            }
+        }
 
         let resp = req.body(body.clone()).send().await?;
 
@@ -150,6 +209,15 @@ impl UpstreamClient {
         // Anthropic 格式的辅助端点（如 /v1/models）要求 anthropic-version
         if !has_anthropic_version && client_headers.contains_key("x-api-key") {
             req = req.header("anthropic-version", "2023-06-01");
+        }
+        // 静态注入头：只补客户端没带的键（辅助路径 body 格式未知，不做会话推导）
+        for (k, v) in &ep.headers {
+            if client_headers.contains_key(k.as_str()) {
+                continue;
+            }
+            if let (Ok(hk), Ok(hv)) = (HeaderName::from_str(k), HeaderValue::from_str(v)) {
+                req = req.header(hk, hv);
+            }
         }
 
         let resp = req.body(body.clone()).send().await?;
@@ -334,5 +402,78 @@ impl UpstreamResponse {
         }
 
         builder.body(Body::empty()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn anthropic_body(user_id: &str) -> Bytes {
+        Bytes::from(format!(
+            r#"{{"model":"claude-opus-5-5","metadata":{{"user_id":"{}"}}}}"#,
+            user_id
+        ))
+    }
+
+    #[test]
+    fn anthropic_user_id_takes_session_suffix() {
+        let body = anthropic_body(
+            "user_ab12cd34_account_11111111-2222-3333-4444-555555555555_session_99999999-8888-7777-6666-555555555555",
+        );
+        assert_eq!(
+            session_header_value(Protocol::Anthropic, &body).as_deref(),
+            Some("99999999-8888-7777-6666-555555555555")
+        );
+    }
+
+    #[test]
+    fn anthropic_user_id_without_session_part_falls_back_to_whole() {
+        let body = anthropic_body("user_ab12cd34");
+        assert_eq!(
+            session_header_value(Protocol::Anthropic, &body).as_deref(),
+            Some("user_ab12cd34")
+        );
+    }
+
+    #[test]
+    fn openai_takes_user_field() {
+        let body = Bytes::from(r#"{"model":"gpt-x","user":"user-98765"}"#);
+        assert_eq!(
+            session_header_value(Protocol::OpenAI, &body).as_deref(),
+            Some("user-98765")
+        );
+        // Responses 协议同 OpenAI
+        assert_eq!(
+            session_header_value(Protocol::Responses, &body).as_deref(),
+            Some("user-98765")
+        );
+    }
+
+    #[test]
+    fn missing_or_invalid_yields_none() {
+        // 没有 metadata / user 字段
+        assert_eq!(
+            session_header_value(Protocol::Anthropic, &Bytes::from(r#"{"model":"m"}"#)),
+            None
+        );
+        // metadata 里没有 user_id
+        assert_eq!(
+            session_header_value(
+                Protocol::Anthropic,
+                &Bytes::from(r#"{"metadata":{"other":1}}"#)
+            ),
+            None
+        );
+        // 非 JSON body
+        assert_eq!(
+            session_header_value(Protocol::OpenAI, &Bytes::from_static(b"not json")),
+            None
+        );
+        // 空串
+        assert_eq!(
+            session_header_value(Protocol::OpenAI, &Bytes::from(r#"{"user":""}"#)),
+            None
+        );
     }
 }

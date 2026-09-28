@@ -70,6 +70,9 @@ pub struct ProviderCommon {
     // 缺失则按协议取默认最高档（OpenAI/Responses=xhigh，Anthropic=max）
     #[serde(default)]
     pub thinking_effort: Option<String>,
+    // 静态注入头，如 x-opencode-session
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +106,8 @@ pub struct EndpointRaw {
     pub path_mode: Option<PathMode>,
     #[serde(default)]
     pub thinking_effort: Option<String>,
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 // 合并后的有效 endpoint
@@ -118,6 +123,8 @@ pub struct Endpoint {
     pub max_retries: u32,
     pub path_mode: PathMode,
     pub thinking_effort: Option<String>,
+    // 静态注入头：客户端请求里没有该键时才补上（已有的键不覆盖）
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -239,6 +246,11 @@ impl Provider {
                 .thinking_effort
                 .clone()
                 .or_else(|| c.thinking_effort.clone()),
+            headers: raw
+                .headers
+                .clone()
+                .or_else(|| c.headers.clone())
+                .unwrap_or_default(),
         })
     }
 
