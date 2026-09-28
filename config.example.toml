@@ -1,6 +1,5 @@
 # mini-proxy 配置文件
 # 首次运行自动生成，默认配置即可直接使用，无需填写 API Key
-# 本文件由 `mini-proxy --example` 导出，手工修改会被覆盖
 
 # ════════════════════════════════════════════════════════════
 # 一、字段说明（修改时参考此部分）
@@ -40,20 +39,16 @@
 #                     具体档位（如 "xhigh"/"max"/"high"）→ 强制覆盖客户端该字段
 #                     "passthrough" → 原样透传不修改
 #                     缺省 → 默认各协议最高档：OpenAI/Responses=xhigh，Anthropic=max
-#   headers         静态注入头（表）：客户端没带的键才补上，已有的不覆盖（主路径 + aux 均生效）
-#                     x-opencode-session 无需配置：代理自动从请求体推导会话 ID
-#                     （Anthropic 取 metadata.user_id 的 _session_ 后缀，OpenAI/Responses 取 user 字段），
-#                     推导不出时用启动时随机生成的进程级 UUID；在此配置可固定该兜底值
+#   is_opencode     供应商级开关：true 时自动补 x-opencode-session 会话头（OpenCode Go 网关要求）
+#                     取值顺序：请求体推导（Anthropic 取 metadata.user_id 的 _session_ 后缀，
+#                     OpenAI/Responses 取 user 字段）> 启动时随机生成的进程级 UUID；
+#                     客户端自带的头原样透传不覆盖；其他供应商不受影响
+#   headers         静态注入头（表）：客户端没带的键才补上，已有的不覆盖；主路径 + aux 均生效
 #
 # [provider.openai]       OpenAI 协议端点，后缀 /chat/completions
 # [provider.anthropic]    Anthropic 协议端点，后缀 /v1/messages
 # [provider.responses]    Response 协议端点，后缀 /responses
 #   以上三个端点的字段继承 provider 级，同名时覆盖之
-#
-# [provider.aux]          辅助端点：未识别路径原样透传（如 GET /v1/models、POST /v1/messages/count_tokens）
-#                         base_url 必填；目标 = base_url + 原路径（含查询串）
-#                         不改 body、不做模型映射、不注入思考强度、不重试；path_mode 无效
-#                         多个 provider 都配了 aux 时只用第一个（日志会提示）
 #
 # 对外服务端点（裸路径，无 /v1 /v2 /v3 前缀，按路径自动区分协议）：
 #   完整路径：
@@ -99,15 +94,6 @@
 # thinking_effort = "xhigh"            # Responses 默认最高档；填 passthrough 透传
 # path_mode = "full"
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"
-#
-# [provider.aux]
-# # 辅助端点：未识别路径透传到 base_url + 原路径，例如客户端点「获取模型」时发的 GET /v1/models
-# base_url = "https://api.example.com"
-#
-# [provider.headers]
-# # 静态注入头（可选）：客户端没带的键才补上
-# # x-opencode-session 默认自动生成（启动时随机 UUID），在此填写可固定兜底值
-# # x-opencode-session = "6f1c2a34-90ab-4c5d-8e21-7b0a9c3d4e5f"
 
 # ════════════════════════════════════════════════════════════
 # 三、可运行配置（默认即可使用，按需修改）
@@ -128,7 +114,7 @@ rotate_keep = 7
 [[provider]]
 name = "AstronCodingPlan"
 api_key = ""
-models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xopdeepseekv4flash"]
+models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xopdeepseekv4flash", "xopdeepseekv4flash0731"]
 max_retries = 10000
 retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210, 10310]
 key_mode = "passthrough"
@@ -145,3 +131,52 @@ base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
 thinking_effort = "xhigh"
 path_mode = "full"
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"
+
+# ────────────────────────────────────────────────────────────
+# 供应商：aijws（客户端模型名 → 上游真实模型名）
+# 客户端用 Claude Code 认识的名字 claude-opus-5 / claude-fable-5，
+# 上游实际是 claude-opus-5-5 / claude-fable-5-1
+# ────────────────────────────────────────────────────────────
+[[provider]]
+name = "Aijws"
+api_key = ""                      # key_mode = "passthrough" 时留空，透传客户端 Key
+models = ["claude-opus-5", "claude-fable-5", "deepseek-v4-pro"]
+max_retries = 10000
+key_mode = "passthrough"
+thinking_effort = "passthrough"   # 新上游先不注入思考强度；要按项目默认拉满改成 "max"
+
+[provider.model_map]
+"claude-opus-5" = "claude-opus-5-5"
+"claude-fable-5" = "claude-fable-5-1"
+"deepseek-v4-pro" = "claude-opus-5-5"   # 客户端要 deepseek-v4-pro 时，上游按 opus 5.5 走
+
+[provider.anthropic]
+base_url = "https://api.aijws.com"   # append 模式 → 实际请求 https://api.aijws.com/v1/messages
+
+[provider.aux]
+base_url = "https://api.aijws.com"   # 未识别路径透传，如 GET /v1/models（应用里「获取模型」用）
+
+# ────────────────────────────────────────────────────────────
+# 供应商：OpenCode Zen（is_opencode = true → 代理自动补 x-opencode-session 会话头）
+# OpenAI chat / responses 端点：https://opencode.ai/zen/go/v1
+# Anthropic 端点：https://opencode.ai/zen/go（append /v1/messages）
+# ────────────────────────────────────────────────────────────
+[[provider]]
+name = "OpenCode"
+is_opencode = true
+api_key = ""
+models = ["deepseek-v4.1-flash"]
+max_retries = 10000
+key_mode = "passthrough"
+thinking_effort = "passthrough"
+
+[provider.openai]
+base_url = "https://opencode.ai/zen/go/v1"    # append → .../v1/chat/completions
+
+[provider.responses]
+base_url = "https://opencode.ai/zen/go/v1"    # append → .../v1/responses
+
+[provider.anthropic]
+base_url = "https://opencode.ai/zen/go"       # append → .../v1/messages
+
+

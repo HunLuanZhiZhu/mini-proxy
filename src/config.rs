@@ -73,6 +73,9 @@ pub struct ProviderCommon {
     // 静态注入头，如 x-opencode-session
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    // 供应商级开关：true 时自动补 x-opencode-session 会话头（OpenCode Go 网关要求）
+    #[serde(default)]
+    pub is_opencode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +111,8 @@ pub struct EndpointRaw {
     pub thinking_effort: Option<String>,
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub is_opencode: Option<bool>,
 }
 
 // 合并后的有效 endpoint
@@ -125,6 +130,8 @@ pub struct Endpoint {
     pub thinking_effort: Option<String>,
     // 静态注入头：客户端请求里没有该键时才补上（已有的键不覆盖）
     pub headers: HashMap<String, String>,
+    // true 时自动补 x-opencode-session 会话头（默认 false）
+    pub is_opencode: bool,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -251,6 +258,7 @@ impl Provider {
                 .clone()
                 .or_else(|| c.headers.clone())
                 .unwrap_or_default(),
+            is_opencode: raw.is_opencode.or(c.is_opencode).unwrap_or(false),
         })
     }
 
