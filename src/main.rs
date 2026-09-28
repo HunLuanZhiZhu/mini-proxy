@@ -12,9 +12,10 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-// 示例配置编译期嵌入二进制（include_str 宏读本地文件），首次运行时写入磁盘；
-// `--example` 可把它导出回 config.example.toml
-const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
+// 实际配置文件编译期嵌入二进制（include_str 宏直接读本地 config.toml），
+// 保证二进制内模板与本地实际配置始终一致；首次运行时写入磁盘，
+// `--example` 可把它导出为 config.example.toml（仓库可见的副本）
+const EXAMPLE_CONFIG: &str = include_str!("../config.toml");
 
 #[tokio::main]
 async fn main() -> Result<()> {
