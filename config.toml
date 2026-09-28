@@ -112,13 +112,13 @@ rotate_size_mb = 50
 rotate_keep = 7
 
 # ────────────────────────────────────────────────────────────
-# 供应商：OpenCode Zen（is_opencode = true → 代理自动补 x-opencode-session 会话头）
+# 供应商：OpenCodeGo（is_opencode = true → 代理自动补 x-opencode-session 会话头）
 # OpenAI chat / responses 端点：https://opencode.ai/zen/go/v1
 # Anthropic 端点：https://opencode.ai/zen/go（append /v1/messages）
 # 放在第一位：模型未在任何供应商注册时，兜底路由到这里
 # ────────────────────────────────────────────────────────────
 [[provider]]
-name = "OpenCode"
+name = "OpenCodeGo"
 is_opencode = true
 api_key = ""
 models = ["deepseek-v4.1-flash"]
