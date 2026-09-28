@@ -165,6 +165,8 @@ async fn aux_passthrough(
 
 // 按协议 + 模型在 providers 中查找第一个匹配的 endpoint
 // 返回合并后的 Endpoint（provider 级 + endpoint 级）
+// 模型未在任何供应商的 models 里注册时，兜底走第一个配置了该协议端点的供应商
+// （把常用网关放 [[provider]] 第一位即可承接所有未注册模型）
 fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoint> {
     for p in &cfg.provider {
         let ep = match protocol {
@@ -178,7 +180,15 @@ fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoi
             }
         }
     }
-    None
+    let fallback = cfg.provider.iter().find_map(|p| match protocol {
+        Protocol::OpenAI => p.openai_endpoint(),
+        Protocol::Anthropic => p.anthropic_endpoint(),
+        Protocol::Responses => p.responses_endpoint(),
+    });
+    if fallback.is_some() {
+        tracing::info!(model = %model, ?protocol, "模型未注册，回退到第一个供应商");
+    }
+    fallback
 }
 
 // 清洗请求体：
