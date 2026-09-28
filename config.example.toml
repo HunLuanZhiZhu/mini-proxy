@@ -27,7 +27,7 @@
 #                   留空则使用默认范围（参考 new-api：100-199,300-399,401-407,409-499,500-503,505-523,525-599）
 #                   永远不重试 504 和 524
 #   retry_on_code   触发重试的业务错误码（响应 body 中 error.code 字段），整数数组
-#                   留空则使用讯飞默认码：10007,10008,10009,10010,10012,10110,10222,10223,11200,11201,11202,11203,11210
+#                   留空则使用讯飞默认码：10007,10008,10009,10010,10012,10110,10222,10223,11200,11201,11202,11203,11210,10310
 #                   （流量受限/服务容量不足/引擎连接失败/排队/内部错误/服务忙/网络异常/LB找不到引擎/授权超限/次数超限/秒级流控/并发流控/tpm超限）
 #   key_mode        API Key 模式：
 #                     "passthrough"（默认）：保留客户端原 Key，config 不存储不管理
@@ -35,21 +35,28 @@
 #   path_mode       上游 URL 拼接模式：
 #                     "append"（默认）：上游 URL = base_url + 协议后缀（见下方）
 #                     "full"：base_url 原样使用，不补路径
+#   thinking_effort 强制思考强度档位（按次计费时每次拉满）：
+#                     具体档位（如 "xhigh"/"max"/"high"）→ 强制覆盖客户端该字段
+#                     "passthrough" → 原样透传不修改
+#                     缺省 → 默认各协议最高档：OpenAI/Responses=xhigh，Anthropic=max
 #
 # [provider.openai]       OpenAI 协议端点，后缀 /chat/completions
 # [provider.anthropic]    Anthropic 协议端点，后缀 /v1/messages
 # [provider.responses]    Response 协议端点，后缀 /responses
 #   以上三个端点的字段继承 provider 级，同名时覆盖之
 #
-# 对外服务端点：
+# [provider.aux]          辅助端点：未识别路径原样透传（如 GET /v1/models、POST /v1/messages/count_tokens）
+#                         base_url 必填；目标 = base_url + 原路径（含查询串）
+#                         不改 body、不做模型映射、不注入思考强度、不重试；path_mode 无效
+#                         多个 provider 都配了 aux 时只用第一个（日志会提示）
+#
+# 对外服务端点（裸路径，无 /v1 /v2 /v3 前缀，按路径自动区分协议）：
 #   完整路径：
-#     POST http://127.0.0.1:7946/v1/chat/completions  → OpenAI 协议（/v1 前缀）
-#     POST http://127.0.0.1:7946/v2/messages          → Anthropic 协议（/v2 前缀）
-#     POST http://127.0.0.1:7946/v3/responses         → Response 协议（/v3 前缀）
+#     POST http://127.0.0.1:7946/chat/completions  → OpenAI 协议
+#     POST http://127.0.0.1:7946/v1/messages       → Anthropic 协议
+#     POST http://127.0.0.1:7946/responses         → Response 协议
 #   通常填写（SDK base_url）：
-#     http://127.0.0.1:7946/v1   → OpenAI 协议
-#     http://127.0.0.1:7946/v2   → Anthropic 协议
-#     http://127.0.0.1:7946/v3   → Response 协议
+#     http://127.0.0.1:7946   → 三种协议共用，按路径自动区分
 
 # ════════════════════════════════════════════════════════════
 # 二、填写示例（完整字段展示，按需取消注释并修改）
@@ -58,10 +65,10 @@
 # [[provider]]
 # name = "AstronCodingPlan"
 # api_key = "sk-your-real-key"           # 仅 override 模式需要，passthrough 可留空
-# models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
+# models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xopdeepseekv4flash"]
 # max_retries = 10000
 # retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
-# retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210]
+# retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210, 10310]
 # key_mode = "passthrough"               # override | passthrough（默认）
 # path_mode = "append"                   # append（默认） | full
 # # 模型 ID 映射（通常不需要，默认同名透传）
@@ -71,19 +78,26 @@
 #
 # [provider.openai]
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
+# thinking_effort = "xhigh"            # OpenAI 默认最高档；填 passthrough 透传
 # # 如需覆盖 provider 级字段，在此填写，例如：
 # # api_key = "openai-专用-key"
 # # max_retries = 50
 #
 # [provider.anthropic]
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
+# thinking_effort = "max"              # Anthropic 默认最高档；填 passthrough 透传
 # # 同样可在此覆盖 provider 级任意字段
 #
 # [provider.responses]
 # # Response 协议（OpenAI /v1/responses 端点）
 # # append 模式补 /responses；讯飞此地址已含完整路径，用 path_mode = "full"
+# thinking_effort = "xhigh"            # Responses 默认最高档；填 passthrough 透传
 # path_mode = "full"
 # base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"
+#
+# [provider.aux]
+# # 辅助端点：未识别路径透传到 base_url + 原路径，例如客户端点「获取模型」时发的 GET /v1/models
+# base_url = "https://api.example.com"
 
 # ════════════════════════════════════════════════════════════
 # 三、可运行配置（默认即可使用，按需修改）
@@ -104,18 +118,20 @@ rotate_keep = 7
 [[provider]]
 name = "AstronCodingPlan"
 api_key = ""
-models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
+models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xopdeepseekv4flash"]
 max_retries = 10000
-retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
-retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210]
+retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210, 10310]
 key_mode = "passthrough"
 
 [provider.openai]
+thinking_effort = "xhigh"
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
 
 [provider.anthropic]
+thinking_effort = "max"
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
 
 [provider.responses]
+thinking_effort = "xhigh"
 path_mode = "full"
 base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"

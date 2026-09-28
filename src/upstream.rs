@@ -100,6 +100,78 @@ impl UpstreamClient {
             preloaded: None,
         })
     }
+
+    // 辅助路径透传：方法/路径/查询串/body 原样转发，目标 = base_url + 原路径
+    // 不改 body、不做模型映射、不注入思考强度、不重试；鉴权按 key_mode 处理
+    pub async fn send_aux(
+        &self,
+        ep: &Endpoint,
+        method: Method,
+        path: &str,
+        query: Option<&str>,
+        body: &Bytes,
+        client_headers: &HeaderMap,
+    ) -> Result<UpstreamResponse> {
+        let base = ep.base_url.trim_end_matches('/');
+        let mut url = format!("{}/{}", base, path.trim_start_matches('/'));
+        if let Some(q) = query.filter(|q| !q.is_empty()) {
+            url.push('?');
+            url.push_str(q);
+        }
+
+        let use_override = matches!(ep.key_mode, KeyMode::Override) && !ep.api_key.is_empty();
+        let mut req = self.http.request(method, &url);
+        if use_override {
+            // 辅助端点格式未知，两种鉴权头都带上（网关只会认其中一种）
+            req = req
+                .header("authorization", format!("Bearer {}", ep.api_key))
+                .header("x-api-key", &ep.api_key);
+        }
+
+        let mut has_anthropic_version = false;
+        for (name, value) in client_headers.iter() {
+            let name_lower = name.as_str().to_lowercase();
+            match name_lower.as_str() {
+                "authorization" | "x-api-key" => {
+                    if !use_override {
+                        req = req.header(name, value);
+                    }
+                }
+                // 逐跳头 / host / 长度：由本段连接自己决定
+                "host" | "content-length" | "connection" | "transfer-encoding" => {}
+                _ => {
+                    if name_lower == "anthropic-version" {
+                        has_anthropic_version = true;
+                    }
+                    req = req.header(name, value);
+                }
+            }
+        }
+        // Anthropic 格式的辅助端点（如 /v1/models）要求 anthropic-version
+        if !has_anthropic_version && client_headers.contains_key("x-api-key") {
+            req = req.header("anthropic-version", "2023-06-01");
+        }
+
+        let resp = req.body(body.clone()).send().await?;
+
+        let status = StatusCode::from_u16(resp.status().as_u16())?;
+        let is_stream = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.contains("text/event-stream"))
+            .unwrap_or(false);
+        let upstream_headers = resp.headers().clone();
+
+        Ok(UpstreamResponse {
+            status,
+            is_stream,
+            headers: upstream_headers,
+            resp: Some(resp),
+            body_bytes: None,
+            preloaded: None,
+        })
+    }
 }
 
 pub struct UpstreamResponse {
@@ -218,9 +290,11 @@ impl UpstreamResponse {
 
         for (name, value) in self.headers.iter() {
             let name_lower = name.as_str().to_lowercase();
+            // body 原样转发，content-encoding 必须跟着转发，否则压缩体会被客户端当明文解析；
+            // 代价：上游压缩时 preload_body / extract_error_code 读不到明文，业务错误码重试失效
             if matches!(
                 name_lower.as_str(),
-                "content-length" | "connection" | "transfer-encoding" | "content-encoding"
+                "content-length" | "connection" | "transfer-encoding"
             ) {
                 continue;
             }

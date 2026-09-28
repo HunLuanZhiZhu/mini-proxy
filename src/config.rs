@@ -66,6 +66,10 @@ pub struct ProviderCommon {
     pub key_mode: Option<KeyMode>,
     #[serde(default)]
     pub path_mode: Option<PathMode>,
+    // 强制思考强度档位（如 "xhigh"/"max"/"high"）；"passthrough" 透传不修改；
+    // 缺失则按协议取默认最高档（OpenAI/Responses=xhigh，Anthropic=max）
+    #[serde(default)]
+    pub thinking_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,6 +83,10 @@ pub struct Provider {
     pub anthropic: Option<EndpointRaw>,
     #[serde(default)]
     pub responses: Option<EndpointRaw>,
+    // 辅助端点：未识别路径（GET /v1/models、POST /v1/messages/count_tokens 等）原样透传，
+    // 目标 = base_url + 原路径，不改 body、不做模型映射、不重试
+    #[serde(default)]
+    pub aux: Option<EndpointRaw>,
 }
 
 // 原始 endpoint 配置，字段全可选，缺失的从 provider 级取
@@ -93,6 +101,8 @@ pub struct EndpointRaw {
     pub retry_on_code: Option<Vec<i64>>,
     pub key_mode: Option<KeyMode>,
     pub path_mode: Option<PathMode>,
+    #[serde(default)]
+    pub thinking_effort: Option<String>,
 }
 
 // 合并后的有效 endpoint
@@ -107,6 +117,7 @@ pub struct Endpoint {
     pub retry_on_code: Vec<i64>,
     pub max_retries: u32,
     pub path_mode: PathMode,
+    pub thinking_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -192,11 +203,12 @@ pub fn is_always_skip(code: u16) -> bool {
 // 这些是临时性错误，可能随额度刷新/引擎恢复而成功：
 //   10007 流量受限、10008 服务容量不足、10009 引擎连接失败、10010 引擎排队、
 //   10012 引擎内部错误/排队、10110 服务忙、10222 引擎网络异常、10223 LB找不到引擎、
-//   11200 授权/业务量超限、11201 次数超限、11202 秒级流控、11203 并发流控、11210 tpm超限
+//   11200 授权/业务量超限、11201 次数超限、11202 秒级流控、11203 并发流控、11210 tpm超限、
+//   11310 新错误类型
 pub fn default_retry_codes() -> Vec<i64> {
     vec![
         10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223,
-        11200, 11201, 11202, 11203, 11210,
+        11200, 11201, 11202, 11203, 11210, 11310,
     ]
 }
 
@@ -223,6 +235,10 @@ impl Provider {
                 .unwrap_or_default(),
             max_retries: raw.max_retries.or(c.max_retries).unwrap_or(10000),
             path_mode: raw.path_mode.or(c.path_mode).unwrap_or_default(),
+            thinking_effort: raw
+                .thinking_effort
+                .clone()
+                .or_else(|| c.thinking_effort.clone()),
         })
     }
 
@@ -236,6 +252,11 @@ impl Provider {
 
     pub fn responses_endpoint(&self) -> Option<Endpoint> {
         self.responses.as_ref().and_then(|r| self.resolve_endpoint(r))
+    }
+
+    // 辅助端点：未识别路径透传用（base_url 必填，path_mode 无效，始终按原路径拼接）
+    pub fn aux_endpoint(&self) -> Option<Endpoint> {
+        self.aux.as_ref().and_then(|r| self.resolve_endpoint(r))
     }
 }
 

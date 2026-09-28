@@ -4,12 +4,13 @@
 
 ## 特性
 
-- **三种协议透传**：OpenAI（`/v1`）、Anthropic（`/v2`）、Response（`/v3`）
+- **三种协议透传**：OpenAI（`/chat/completions`）、Anthropic（`/v1/messages`）、Response（`/responses`）
 - **自动重试**：HTTP 状态码范围 + 业务错误码双重判断，默认重试 10000 次
 - **流式支持**：完整 SSE 透传，流中途错误也能检测并重试
 - **API Key 双模式**：passthrough（透传客户端 Key）/ override（config 覆盖）
 - **模型名映射**：客户端模型名 → 上游模型名
 - **请求体清洗**：补全缺失字段、移除空内容项
+- **思考强度注入**：默认按协议强制覆盖到最高档（OpenAI/Responses=xhigh，Anthropic=max），可配置 `passthrough` 透传；日志记录原值 → 新值
 - **单文件部署**：预编译 exe + 自动生成配置，开箱即用
 
 ## 快速开始
@@ -43,11 +44,11 @@ mini-proxy.exe --help
 
 | 协议 | 完整路径 | SDK base_url |
 |---|---|---|
-| OpenAI | `POST http://<listen>/v1/chat/completions` | `http://<listen>/v1` |
-| Anthropic | `POST http://<listen>/v2/v1/messages` | `http://<listen>/v2` |
-| Response | `POST http://<listen>/v3/responses` | `http://<listen>/v3` |
+| OpenAI | `POST http://<listen>/chat/completions` | `http://<listen>` |
+| Anthropic | `POST http://<listen>/v1/messages` | `http://<listen>` |
+| Response | `POST http://<listen>/responses` | `http://<listen>` |
 
-路径按前缀路由：`/v1` → OpenAI，`/v2` → Anthropic，`/v3` → Response。
+按裸路径自动路由：`/chat/completions` → OpenAI，`/v1/messages` → Anthropic，`/responses` → Response。三种协议共用同一个 base_url，无 `/v1` `/v2` `/v3` 前缀。
 
 ## 配置示例
 
@@ -65,10 +66,10 @@ to_file = "logs/proxy.log"
 [[provider]]
 name = "AstronCodingPlan"
 api_key = ""
-models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26"]
+models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xopdeepseekv4flash"]
 max_retries = 10000
 retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
-retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210]
+retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210, 11310]
 key_mode = "passthrough"
 
 [provider.openai]
@@ -105,6 +106,7 @@ provider 级字段可被三种协议端点共用，endpoint 级同名字段覆�
 | `retry_on_code` | 可重试业务错误码 | 见下文 |
 | `key_mode` | `passthrough` / `override` | `passthrough` |
 | `path_mode` | `append` / `full` | `append` |
+| `thinking_effort` | 强制思考强度档位；`passthrough` 透传；缺省=协议最高档 | 协议最高档 |
 
 ### 端点级配置
 
@@ -132,7 +134,7 @@ provider 级字段可被三种协议端点共用，endpoint 级同名字段覆�
 
 ```
 10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223,
-11200, 11201, 11202, 11203, 11210
+11200, 11201, 11202, 11203, 11210, 11310
 ```
 
 ### 流式错误检测
@@ -169,21 +171,21 @@ to_file = "logs/proxy.log"
 
 ## 客户端配置示例
 
-### Cursor（OpenAI 协议 /v1）
+### Cursor（OpenAI 协议 /chat/completions）
 
 ```
-Override OpenAI Base URL: http://127.0.0.1:7946/v1
+Override OpenAI Base URL: http://127.0.0.1:7946
 OpenAI API Key: 你的 API Key
 模型: xopglm52
 ```
 
-### Claude Code（Anthropic 协议 /v2）
+### Claude Code（Anthropic 协议 /v1/messages）
 
 ```json
 {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "你的 API Key",
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:7946/v2",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:7946",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
     "API_TIMEOUT_MS": 600000,
     "ANTHROPIC_MODEL": "xopglm52"
@@ -191,7 +193,7 @@ OpenAI API Key: 你的 API Key
 }
 ```
 
-### CodeX（Response 协议 /v3）
+### CodeX（Response 协议 /responses）
 
 auth.json：
 ```json
@@ -207,7 +209,7 @@ preferred_auth_method = "apikey"
 
 [model_providers.xf-api]
 name = "xf-api"
-base_url = "http://127.0.0.1:7946/v3"
+base_url = "http://127.0.0.1:7946"
 wire_api = "responses"
 ```
 

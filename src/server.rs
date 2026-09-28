@@ -5,8 +5,8 @@ use crate::protocol::Protocol;
 use crate::retry::{dispatch, DispatchOutcome};
 use crate::upstream::UpstreamClient;
 use axum::body::Body;
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, Response, StatusCode};
+use axum::extract::{Path, RawQuery, State};
+use axum::http::{HeaderMap, Method, Response, StatusCode};
 use axum::routing::{any, post};
 use axum::Router;
 use bytes::Bytes;
@@ -29,14 +29,16 @@ pub fn build(state: AppState) -> Router {
 async fn handle(
     State(state): State<AppState>,
     Path(path): Path<String>,
+    method: Method,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
     let protocol = match Protocol::from_path(&path) {
         Some(p) => p,
+        // 未识别路径（GET /v1/models、POST /v1/messages/count_tokens 等）：原样透传
         None => {
-            tracing::warn!(path = %path, "无法识别协议路径");
-            return error_response(StatusCode::NOT_FOUND, "不支持的请求路径");
+            return aux_passthrough(&state, method, &path, query.as_deref(), &headers, body).await
         }
     };
 
@@ -87,6 +89,13 @@ async fn handle(
         clean_empty_messages(&mut parsed, protocol);
     }
 
+    // 思考强度注入：默认按协议强制覆盖到最高档，可配置 passthrough 透传
+    let effort = endpoint
+        .thinking_effort
+        .clone()
+        .unwrap_or_else(|| protocol.default_effort().to_string());
+    inject_thinking(&mut parsed, protocol, &effort);
+
     let body_bytes = serde_json::to_vec(&parsed).unwrap_or_else(|_| body.to_vec());
     let body_bytes = Bytes::from(body_bytes);
 
@@ -106,6 +115,50 @@ async fn handle(
             let mut resp = Response::new(Body::from(body));
             *resp.status_mut() = status;
             resp
+        }
+    }
+}
+
+// 未识别路径的透传：方法/路径/查询串/body 原样转发给第一个配置了 [provider.aux] 的供应商
+// 不改 body、不做模型映射、不重试；没配 [provider.aux] 时维持原来的 404
+async fn aux_passthrough(
+    state: &AppState,
+    method: Method,
+    path: &str,
+    query: Option<&str>,
+    headers: &HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let mut candidates = state
+        .config
+        .provider
+        .iter()
+        .filter_map(|p| p.aux_endpoint().map(|ep| (p.name.clone(), ep)));
+    let Some((name, ep)) = candidates.next() else {
+        tracing::warn!(path, "无法识别协议路径，且没有供应商配置 [provider.aux]");
+        return error_response(StatusCode::NOT_FOUND, "不支持的请求路径");
+    };
+    if candidates.next().is_some() {
+        tracing::warn!(provider = %name, "多个供应商配置了 [provider.aux]，仅使用第一个");
+    }
+
+    tracing::info!(
+        provider = %name,
+        method = %method,
+        path,
+        channel = %ep.base_url,
+        "辅助路径透传"
+    );
+
+    match state
+        .client
+        .send_aux(&ep, method, path, query, &body, headers)
+        .await
+    {
+        Ok(resp) => resp.into_axum().await,
+        Err(e) => {
+            tracing::warn!(error = %e, "辅助路径透传失败");
+            error_response(StatusCode::BAD_GATEWAY, &format!("透传失败: {}", e))
         }
     }
 }
@@ -181,6 +234,96 @@ fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
     let removed = before - arr.len();
     if removed > 0 {
         tracing::info!(field, removed, "已清洗空白 content 消息项");
+    }
+}
+
+// 思考强度注入：读取客户端原值 → 按 effort 强制覆盖（passthrough 时不改）
+// 三协议路径：
+//   OpenAI    → 顶层 reasoning_effort
+//   Responses → reasoning.effort
+//   Anthropic → output_config.effort + thinking.type="adaptive"
+fn inject_thinking(parsed: &mut Value, protocol: Protocol, effort: &str) {
+    let original = read_effort(parsed, protocol);
+
+    if effort == "passthrough" {
+        tracing::info!(original_effort = %original_or_unset(&original), "思考强度透传（未修改）");
+        return;
+    }
+
+    match protocol {
+        Protocol::OpenAI => {
+            if let Some(obj) = parsed.as_object_mut() {
+                obj.insert("reasoning_effort".into(), Value::String(effort.into()));
+            }
+        }
+        Protocol::Responses => {
+            if let Some(obj) = parsed.as_object_mut() {
+                let reasoning = obj
+                    .entry("reasoning")
+                    .or_insert_with(|| Value::Object(Default::default()));
+                if let Some(r) = reasoning.as_object_mut() {
+                    r.insert("effort".into(), Value::String(effort.into()));
+                }
+            }
+        }
+        Protocol::Anthropic => {
+            if let Some(obj) = parsed.as_object_mut() {
+                // output_config.effort
+                let cfg = obj
+                    .entry("output_config")
+                    .or_insert_with(|| Value::Object(Default::default()));
+                if let Some(c) = cfg.as_object_mut() {
+                    c.insert("effort".into(), Value::String(effort.into()));
+                }
+                // thinking.type = "adaptive"
+                let thinking = obj
+                    .entry("thinking")
+                    .or_insert_with(|| Value::Object(Default::default()));
+                if let Some(t) = thinking.as_object_mut() {
+                    t.insert("type".into(), Value::String("adaptive".into()));
+                }
+                // adaptive 思考需足够 max_tokens，过小则保护性提升
+                if let Some(mt) = obj.get("max_tokens").and_then(|v| v.as_u64()) {
+                    if mt < 1024 {
+                        obj.insert("max_tokens".into(), Value::Number(1024.into()));
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::info!(
+        original_effort = %original_or_unset(&original),
+        new_effort = %effort,
+        "思考强度已注入"
+    );
+}
+
+// 读取客户端请求中原有的思考强度档位
+fn read_effort(parsed: &Value, protocol: Protocol) -> Option<String> {
+    match protocol {
+        Protocol::OpenAI => parsed
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        Protocol::Responses => parsed
+            .get("reasoning")
+            .and_then(|r| r.get("effort"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        Protocol::Anthropic => parsed
+            .get("output_config")
+            .and_then(|c| c.get("effort"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    }
+}
+
+// 原值为空时显示 "未设置"，便于日志可读
+fn original_or_unset(original: &Option<String>) -> String {
+    match original {
+        Some(s) if !s.is_empty() => s.clone(),
+        _ => "未设置".to_string(),
     }
 }
 
