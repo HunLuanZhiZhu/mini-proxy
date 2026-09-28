@@ -41,6 +41,9 @@ fn session_header_value(protocol: Protocol, body: &Bytes) -> Option<String> {
 
 pub struct UpstreamClient {
     http: Client,
+    // x-opencode-session 的兜底值：每次进程启动随机生成（无需用户配置）。
+    // 请求体推导不出会话 ID 时使用；同一进程内所有请求共用，重启后变化
+    session_fallback: String,
 }
 
 impl UpstreamClient {
@@ -49,7 +52,10 @@ impl UpstreamClient {
             .timeout(Duration::from_secs(600))
             .build()
             .expect("构建 HTTP 客户端失败");
-        Self { http }
+        Self {
+            http,
+            session_fallback: uuid::Uuid::now_v7().to_string(),
+        }
     }
 
     fn upstream_url(&self, ep: &Endpoint, protocol: Protocol) -> String {
@@ -108,24 +114,20 @@ impl UpstreamClient {
 
         req = req.header("content-type", "application/json");
 
-        // x-opencode-session：客户端没带才补。先从请求体推导，推导不出再用
-        // [provider.headers] 里的同名静态头兜底；客户端已带则原样透传不覆盖
+        // x-opencode-session：客户端没带才补。取值顺序：请求体推导 >
+        // [provider.headers] 静态配置 > 启动时随机生成的进程级兜底值；
+        // 客户端已带则原样透传不覆盖
         if !client_headers.contains_key(SESSION_HEADER) {
-            match session_header_value(protocol, body) {
-                Some(s) => {
-                    tracing::info!(session = %s, "已注入会话头（来源：请求体推导）");
-                    if let Ok(hv) = HeaderValue::from_str(&s) {
-                        req = req.header(SESSION_HEADER, hv);
-                    }
-                }
-                None => {
-                    if let Some(v) = ep.headers.get(SESSION_HEADER) {
-                        tracing::info!("已注入会话头（来源：静态配置）");
-                        if let Ok(hv) = HeaderValue::from_str(v) {
-                            req = req.header(SESSION_HEADER, hv);
-                        }
-                    }
-                }
+            let (source, value) = match session_header_value(protocol, body) {
+                Some(s) => ("请求体推导", s),
+                None => match ep.headers.get(SESSION_HEADER) {
+                    Some(v) => ("静态配置", v.clone()),
+                    None => ("启动随机值", self.session_fallback.clone()),
+                },
+            };
+            tracing::info!(session = %value, source, "已注入会话头");
+            if let Ok(hv) = HeaderValue::from_str(&value) {
+                req = req.header(SESSION_HEADER, hv);
             }
         }
         // 其余静态注入头：同样只补客户端没带的键
@@ -209,6 +211,18 @@ impl UpstreamClient {
         // Anthropic 格式的辅助端点（如 /v1/models）要求 anthropic-version
         if !has_anthropic_version && client_headers.contains_key("x-api-key") {
             req = req.header("anthropic-version", "2023-06-01");
+        }
+        // x-opencode-session：辅助路径 body 格式未知，不做请求体推导；
+        // 客户端没带才补，取静态配置或启动随机值（OpenCode 要求所有请求都携带）
+        if !client_headers.contains_key(SESSION_HEADER) {
+            let (source, value) = match ep.headers.get(SESSION_HEADER) {
+                Some(v) => ("静态配置", v.clone()),
+                None => ("启动随机值", self.session_fallback.clone()),
+            };
+            tracing::info!(source, "辅助路径已注入会话头");
+            if let Ok(hv) = HeaderValue::from_str(&value) {
+                req = req.header(SESSION_HEADER, hv);
+            }
         }
         // 静态注入头：只补客户端没带的键（辅助路径 body 格式未知，不做会话推导）
         for (k, v) in &ep.headers {
