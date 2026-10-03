@@ -1,0 +1,37 @@
+<svg width="1200" height="300" viewBox="0 0 1200 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="300" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#0B1020"/>
+    <stop offset="0.55" stop-color="#111827"/>
+    <stop offset="1" stop-color="#07131D"/>
+  </linearGradient>
+  <linearGradient id="line" x1="170" y1="150" x2="1030" y2="150" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#60A5FA"/>
+    <stop offset="0.5" stop-color="#A78BFA"/>
+    <stop offset="1" stop-color="#34D399"/>
+  </linearGradient>
+  <radialGradient id="g1"><stop stop-color="#3B82F6" stop-opacity=".28"/><stop offset="1" stop-color="#3B82F6" stop-opacity="0"/></radialGradient>
+  <radialGradient id="g2"><stop stop-color="#10B981" stop-opacity=".20"/><stop offset="1" stop-color="#10B981" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="300" rx="24" fill="url(#bg)"/>
+<circle cx="160" cy="40" r="220" fill="url(#g1)"/>
+<circle cx="1070" cy="260" r="240" fill="url(#g2)"/>
+<g opacity=".12" stroke="#CBD5E1">
+  <path d="M0 50H1200M0 100H1200M0 150H1200M0 200H1200M0 250H1200"/>
+  <path d="M100 0V300M200 0V300M300 0V300M400 0V300M500 0V300M600 0V300M700 0V300M800 0V300M900 0V300M1000 0V300M1100 0V300"/>
+</g>
+<path d="M775 150H1100" stroke="url(#line)" stroke-width="4" stroke-linecap="round"/>
+<circle cx="815" cy="150" r="10" fill="#60A5FA"/>
+<circle cx="935" cy="150" r="10" fill="#A78BFA"/>
+<circle cx="1055" cy="150" r="10" fill="#34D399"/>
+<text x="815" y="125" text-anchor="middle" fill="#BFDBFE" font-family="ui-monospace,Consolas,monospace" font-size="14">OpenAI</text>
+<text x="935" y="125" text-anchor="middle" fill="#DDD6FE" font-family="ui-monospace,Consolas,monospace" font-size="14">Anthropic</text>
+<text x="1055" y="125" text-anchor="middle" fill="#A7F3D0" font-family="ui-monospace,Consolas,monospace" font-size="14">Responses</text>
+<text x="72" y="112" fill="#F8FAFC" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="56" font-weight="750">mini-proxy</text>
+<text x="75" y="158" fill="#CBD5E1" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="22">One local endpoint. Multiple AI API protocols.</text>
+<text x="75" y="198" fill="#94A3B8" font-family="ui-monospace,Consolas,monospace" font-size="16">Rust · streaming · retry · routing · request adaptation</text>
+<g transform="translate(75 226)">
+  <rect width="340" height="38" rx="19" fill="#FFFFFF" fill-opacity=".06" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="170" y="25" text-anchor="middle" fill="#DCE7F5" font-family="ui-monospace,Consolas,monospace" font-size="14">127.0.0.1:7946 → upstream providers</text>
+</g>
+</svg>
