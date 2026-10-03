@@ -1,58 +1,145 @@
-# mini-proxy
+<div align="center">
 
-简洁版 AI API 代理，单可执行文件，支持同渠道自动重试。
+<img src="./assets/mini-proxy-banner.svg" width="100%" alt="mini-proxy — one local endpoint for multiple AI API protocols" />
 
-## 特性
+<br/>
 
-- **三种协议透传**：OpenAI（`/chat/completions`）、Anthropic（`/v1/messages`）、Response（`/responses`）
-- **自动重试**：HTTP 状态码范围 + 业务错误码双重判断，默认重试 10000 次
-- **流式支持**：完整 SSE 透传，流中途错误也能检测并重试
-- **API Key 双模式**：passthrough（透传客户端 Key）/ override（config 覆盖）
-- **模型名映射**：客户端模型名 → 上游模型名
-- **请求体清洗**：补全缺失字段、移除空内容项
-- **思考强度注入**：默认按协议强制覆盖到最高档（OpenAI/Responses=xhigh，Anthropic=max），可配置 `passthrough` 透传；日志记录原值 → 新值
-- **单文件部署**：预编译 exe + 自动生成配置，开箱即用
+<a href="./READMEch.md"><img src="https://img.shields.io/badge/中文文档-READMEch.md-2563EB?style=for-the-badge" alt="Chinese README"/></a>
+<a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust_2021-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 2021"/></a>
+<img src="https://img.shields.io/badge/version-0.1.0-7C3AED?style=for-the-badge" alt="version 0.1.0"/>
+<img src="https://img.shields.io/badge/SSE-streaming-059669?style=for-the-badge" alt="SSE streaming"/>
 
-## 快速开始
+<br/><br/>
+
+**A compact local AI API proxy with protocol passthrough, retries, model routing, request adaptation, and single-binary deployment.**
+
+</div>
+
+---
+
+## Why mini-proxy?
+
+Many AI coding clients speak different wire protocols even when they ultimately target similar model providers.
+
+mini-proxy gives them a **single local base URL** and routes requests by path:
+
+<table>
+<tr>
+<td width="33%" align="center"><b>OpenAI-style</b><br/><code>/chat/completions</code></td>
+<td width="33%" align="center"><b>Anthropic-style</b><br/><code>/v1/messages</code></td>
+<td width="33%" align="center"><b>Responses-style</b><br/><code>/responses</code></td>
+</tr>
+</table>
+
+It is designed for local model gateways, coding-plan APIs, compatibility layers, and setups where you want one stable endpoint in front of several upstream services.
+
+---
+
+## Highlights
+
+| Capability | What it does |
+|---|---|
+| 🔀 **Three protocol paths** | OpenAI Chat Completions, Anthropic Messages, and Responses API style traffic |
+| ♻️ **Automatic retry** | Retries by HTTP status range and provider business error code |
+| 🌊 **SSE streaming** | Preserves streaming responses and can detect retryable errors during early stream events |
+| 🔑 **Two API-key modes** | Client-key passthrough or configuration override |
+| 🗺️ **Model mapping** | Maps client-facing model IDs to upstream model IDs |
+| 🧹 **Request cleanup** | Normalizes selected request fields and removes empty content entries |
+| 🧠 **Reasoning-effort injection** | Can force protocol-specific reasoning effort or leave client values untouched |
+| 🧩 **Provider inheritance** | Shared provider settings with per-endpoint overrides |
+| 🪪 **Header injection** | Adds configured headers only when the client did not already provide them |
+| 🧵 **OpenCode session support** | Optional automatic <code>x-opencode-session</code> generation / propagation |
+| 📦 **Single executable** | Build once, run directly; first launch can generate configuration |
+| 🪵 **Structured logging** | Console + rolling file logs through <code>tracing</code> |
+
+---
+
+## Quick start
 
 ### Windows
 
-```bash
-# 下载 mini-proxy.exe，直接运行
+Download or build <code>mini-proxy.exe</code>, then run:
+
+~~~powershell
 mini-proxy.exe
+~~~
 
-# 首次运行自动生成 config.toml 并启动
-# 默认配置使用讯飞星辰 MaaS Coding Plan，无需填 Key
-```
+On first launch, mini-proxy can create <code>config.toml</code> and start with the configured defaults.
 
-### 从源码编译
+### Build from source
 
-```bash
+~~~bash
 cargo build --release
-# 产物：target/release/mini-proxy.exe
-```
+~~~
 
-### 配置
+Binary:
 
-首次运行生成 `config.toml`，修改后重启生效。也可用 `--help` 查看完整配置模板：
+~~~text
+target/release/mini-proxy
+~~~
 
-```bash
-mini-proxy.exe --help
-```
+On Windows:
 
-## 对外端点
+~~~text
+target/release/mini-proxy.exe
+~~~
 
-| 协议 | 完整路径 | SDK base_url |
+### Inspect configuration help
+
+~~~bash
+mini-proxy --help
+~~~
+
+---
+
+## Request flow
+
+~~~text
+Cursor / Claude Code / Codex / other clients
+                    │
+                    ▼
+          http://127.0.0.1:7946
+                    │
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+ /chat/completions /v1/messages /responses
+      OpenAI        Anthropic    Responses
+        │           │           │
+        └──── provider routing ──┘
+                    │
+          model map / headers
+        retry / key handling
+        reasoning adaptation
+                    │
+                    ▼
+             upstream APIs
+~~~
+
+---
+
+## Public endpoints
+
+| Protocol | Request path | SDK base URL |
 |---|---|---|
-| OpenAI | `POST http://<listen>/chat/completions` | `http://<listen>` |
-| Anthropic | `POST http://<listen>/v1/messages` | `http://<listen>` |
-| Response | `POST http://<listen>/responses` | `http://<listen>` |
+| OpenAI-style | <code>POST http://&lt;listen&gt;/chat/completions</code> | <code>http://&lt;listen&gt;</code> |
+| Anthropic-style | <code>POST http://&lt;listen&gt;/v1/messages</code> | <code>http://&lt;listen&gt;</code> |
+| Responses-style | <code>POST http://&lt;listen&gt;/responses</code> | <code>http://&lt;listen&gt;</code> |
 
-按裸路径自动路由：`/chat/completions` → OpenAI，`/v1/messages` → Anthropic，`/responses` → Response。三种协议共用同一个 base_url，无 `/v1` `/v2` `/v3` 前缀。
+Default listen address:
 
-## 配置示例
+~~~text
+127.0.0.1:7946
+~~~
 
-```toml
+The three protocols share the same base URL. mini-proxy distinguishes them by the incoming request path.
+
+---
+
+## Configuration
+
+A minimal example:
+
+~~~toml
 [server]
 listen = "127.0.0.1:7946"
 clean_empty_content = true
@@ -62,163 +149,177 @@ level = "info"
 format = "pretty"
 to_stdout = true
 to_file = "logs/proxy.log"
+rotate_size_mb = 50
+rotate_keep = 7
 
 [[provider]]
-name = "AstronCodingPlan"
+name = "ExampleProvider"
 api_key = ""
-models = ["xopglm52", "xopglm51", "xopdeepseekv4pro", "xopkimik26", "auto", "xopdeepseekv4flash"]
+models = ["model-a", "model-b"]
 max_retries = 10000
-retry_on_status = ["100-199", "300-399", "401-407", "409-499", "500-503", "505-523", "525-599"]
-retry_on_code = [10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223, 11200, 11201, 11202, 11203, 11210, 11310]
 key_mode = "passthrough"
+thinking_effort = "passthrough"
 
 [provider.openai]
-base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"
+base_url = "https://example.com/v1"
 
 [provider.anthropic]
-base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
+base_url = "https://example.com"
 
 [provider.responses]
-path_mode = "full"
-base_url = "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1/responses"
-```
+base_url = "https://example.com/v1"
+~~~
 
-## 关键字段说明
+The repository's <code>config.toml</code> contains a much more complete field reference and working provider examples.
 
-### [server]
+### Core provider fields
 
-| 字段 | 说明 | 默认值 |
+| Field | Meaning | Typical / default behavior |
 |---|---|---|
-| `listen` | 本地监听地址 | `127.0.0.1:7946` |
-| `clean_empty_content` | 清洗请求体：补全缺失 `type:"message"`，移除空 content 项 | `true` |
+| <code>name</code> | Provider label used in logs | required |
+| <code>api_key</code> | Key used in override mode | empty |
+| <code>models</code> | Client-visible model IDs handled by this provider | provider-specific |
+| <code>model_map</code> | Client model ID → upstream model ID | same-name passthrough when absent |
+| <code>max_retries</code> | Maximum retries on the same provider/model | <code>10000</code> |
+| <code>retry_on_status</code> | Retryable HTTP codes / ranges | built-in defaults when omitted |
+| <code>retry_on_code</code> | Retryable provider business error codes | built-in defaults when omitted |
+| <code>key_mode</code> | <code>passthrough</code> or <code>override</code> | <code>passthrough</code> |
+| <code>path_mode</code> | <code>append</code> or <code>full</code> | <code>append</code> |
+| <code>thinking_effort</code> | Force a reasoning level or pass the client value through | protocol-dependent default when omitted |
+| <code>is_opencode</code> | Enable automatic OpenCode session header handling | <code>false</code> |
+| <code>headers</code> | Static headers inserted only when absent from the request | empty |
 
-### [[provider]]
+Endpoint sections such as <code>[provider.openai]</code>, <code>[provider.anthropic]</code>, and <code>[provider.responses]</code> inherit provider-level values and may override them.
 
-provider 级字段可被三种协议端点共用，endpoint 级同名字段覆盖之。
+---
 
-| 字段 | 说明 | 默认值 |
-|---|---|---|
-| `api_key` | API Key（仅 override 模式） | `""` |
-| `models` | 支持的模型列表 | - |
-| `model_map` | 模型名映射（客户端名 → 上游名） | 空（同名透传） |
-| `max_retries` | 最大重试次数 | `10000` |
-| `retry_on_status` | 可重试 HTTP 状态码范围 | 见下文 |
-| `retry_on_code` | 可重试业务错误码 | 见下文 |
-| `key_mode` | `passthrough` / `override` | `passthrough` |
-| `path_mode` | `append` / `full` | `append` |
-| `thinking_effort` | 强制思考强度档位；`passthrough` 透传；缺省=协议最高档 | 协议最高档 |
+## Retry behavior
 
-### 端点级配置
+### HTTP status retry
 
-| 段 | 协议 | append 后缀 |
-|---|---|---|
-| `[provider.openai]` | OpenAI | `/chat/completions` |
-| `[provider.anthropic]` | Anthropic | `/v1/messages` |
-| `[provider.responses]` | Response | `/responses` |
+When <code>retry_on_status</code> is omitted, mini-proxy uses its built-in retry ranges. The current configuration documentation lists ranges covering most transient / provider-side failures while explicitly excluding <code>504</code> and <code>524</code> from retry.
 
-## 重试机制
+### Provider error-code retry
 
-### HTTP 状态码（retry_on_status）
+mini-proxy can inspect <code>error.code</code> in the response body and retry selected provider-specific business errors.
 
-留空则使用默认范围（参考 new-api）：
+### Streaming retry
 
-```
-100-199, 300-399, 401-407, 409-499, 500-503, 505-523, 525-599
-```
+For SSE responses, mini-proxy pre-reads the early stream events:
 
-永远不重试：`504`、`524`。
+1. a retryable <code>event: error</code> can trigger a fresh upstream attempt;
+2. once valid content begins, buffered events are forwarded together with the remainder of the stream.
 
-### 业务错误码（retry_on_code）
+This avoids committing a broken early stream to the client when the upstream failure is still recoverable.
 
-解析响应 body 中的 `error.code` 字段（支持流式 SSE 中的 `event: error`）。留空则使用讯飞默认码：
+---
 
-```
-10007, 10008, 10009, 10010, 10012, 10110, 10222, 10223,
-11200, 11201, 11202, 11203, 11210, 11310
-```
+## API key modes
 
-### 流式错误检测
-
-流式响应（SSE）会预读前几个事件检测是否含 `event: error`：
-- 命中可重试业务码 → 重试（已读内容丢弃，重新请求）
-- 遇到有效内容事件 → 停止预读，已读内容 + 剩余流一起转发给客户端
-
-## API Key 模式
-
-| 模式 | 行为 |
+| Mode | Behavior |
 |---|---|
-| `passthrough`（默认） | 保留客户端请求中的 Key，config 不存储不管理 |
-| `override` | 用 config 的 `api_key` 覆盖客户端 Key（`api_key` 为空时回退到 passthrough） |
+| <code>passthrough</code> | Preserve the client's key; mini-proxy does not need to own it |
+| <code>override</code> | Replace the client key with <code>api_key</code> from configuration; an empty configured key falls back to passthrough |
 
-## 上游 URL 拼接
+---
 
-| 模式 | 行为 |
+## Upstream URL modes
+
+| Mode | Behavior |
 |---|---|
-| `append`（默认） | `base_url` + 协议后缀（如 `/chat/completions`） |
-| `full` | `base_url` 原样使用 |
+| <code>append</code> | <code>base_url</code> + protocol suffix, such as <code>/chat/completions</code> |
+| <code>full</code> | Use <code>base_url</code> exactly as configured |
 
-## 日志
+This is useful when different providers expose either a common API root or a fully specified endpoint.
 
-双输出：stdout（pretty 彩色）+ 文件（json 按天滚动）。
+---
 
-```toml
-[log]
-level = "info"           # trace | debug | info | warn | error
-format = "pretty"        # pretty | json
-to_stdout = true
-to_file = "logs/proxy.log"
-```
+## Client examples
 
-## 客户端配置示例
+### Cursor — OpenAI-style endpoint
 
-### Cursor（OpenAI 协议 /chat/completions）
-
-```
+~~~text
 Override OpenAI Base URL: http://127.0.0.1:7946
-OpenAI API Key: 你的 API Key
-模型: xopglm52
-```
+OpenAI API Key: <your key>
+Model: <configured model id>
+~~~
 
-### Claude Code（Anthropic 协议 /v1/messages）
+### Claude Code — Anthropic-style endpoint
 
-```json
+~~~json
 {
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "你的 API Key",
+    "ANTHROPIC_AUTH_TOKEN": "<your key>",
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:7946",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
-    "API_TIMEOUT_MS": 600000,
-    "ANTHROPIC_MODEL": "xopglm52"
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "API_TIMEOUT_MS": "600000",
+    "ANTHROPIC_MODEL": "<configured model id>"
   }
 }
-```
+~~~
 
-### CodeX（Response 协议 /responses）
+### Codex — Responses-style endpoint
 
-auth.json：
-```json
-{"OPENAI_API_KEY": "你的 API Key"}
-```
+<code>auth.json</code>:
 
-config.toml：
-```toml
-model_provider = "xf-api"
-model = "xopglm52"
+~~~json
+{
+  "OPENAI_API_KEY": "<your key>"
+}
+~~~
+
+Example client configuration:
+
+~~~toml
+model_provider = "mini-proxy"
+model = "<configured model id>"
 disable_response_storage = true
 preferred_auth_method = "apikey"
 
-[model_providers.xf-api]
-name = "xf-api"
+[model_providers.mini-proxy]
+name = "mini-proxy"
 base_url = "http://127.0.0.1:7946"
 wire_api = "responses"
-```
+~~~
 
-## 技术栈
+---
 
-- Rust 2021 + Tokio
-- axum（HTTP 服务）+ reqwest（HTTP 客户端，rustls）
-- tracing（日志）+ serde/toml（配置）
+## Logging
 
-## 许可
+Example:
 
-自用项目，无外部依赖。
+~~~toml
+[log]
+level = "info"
+format = "pretty"
+to_stdout = true
+to_file = "logs/proxy.log"
+rotate_size_mb = 50
+rotate_keep = 7
+~~~
+
+The project uses <code>tracing</code> / <code>tracing-subscriber</code> and supports console output plus rolling file logs.
+
+---
+
+## Tech stack
+
+<div align="center">
+
+<img src="https://img.shields.io/badge/Rust_2021-000000?style=flat-square&logo=rust&logoColor=white" />
+<img src="https://img.shields.io/badge/Tokio-async_runtime-1F6FEB?style=flat-square" />
+<img src="https://img.shields.io/badge/axum-HTTP_server-6B7280?style=flat-square" />
+<img src="https://img.shields.io/badge/reqwest-HTTP_client-0EA5E9?style=flat-square" />
+<img src="https://img.shields.io/badge/rustls-TLS-059669?style=flat-square" />
+<img src="https://img.shields.io/badge/serde-config_&_JSON-F59E0B?style=flat-square" />
+<img src="https://img.shields.io/badge/tracing-logging-8B5CF6?style=flat-square" />
+
+</div>
+
+---
+
+## Project status
+
+mini-proxy is currently a **personal-use project**. Configuration defaults and provider examples may evolve with the upstream services it is used against.
+
+For Chinese documentation, see **[READMEch.md](./READMEch.md)**.
