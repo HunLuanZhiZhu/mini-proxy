@@ -49,7 +49,7 @@ pub struct UpstreamClient {
 impl UpstreamClient {
     pub fn new() -> Self {
         let http = Client::builder()
-            .timeout(Duration::from_secs(600))
+            .timeout(Duration::from_secs(1800))
             .build()
             .expect("构建 HTTP 客户端失败");
         Self {
