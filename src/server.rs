@@ -192,8 +192,11 @@ fn pick_endpoint(cfg: &Config, protocol: Protocol, model: &str) -> Option<Endpoi
 }
 
 // 清洗请求体：
-// 1. Response 协议：补全 input 项缺失的 type: "message" 字段
-// 2. 所有协议：移除 content 为空/空白的 input(messages) 项
+// 1. Responses 协议：补全 input 项缺失的 type: "message" 字段。
+// 2. OpenAI Chat：assistant 的 tool_calls/function_call 是语义载荷；即使 content 为空也必须保留。
+//    对这类消息把空/空白字符串 content 规范化为 null，避免生成悬空 tool result。
+// 3. tool + tool_call_id 同样属于语义消息，不能仅因 content 为空被删除。
+// 4. 只有没有其它语义载荷的纯空/空白 content 消息才允许删除。
 fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
     let field = match protocol {
         Protocol::Responses => "input",
@@ -204,7 +207,6 @@ fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
         return;
     };
 
-    // Response 协议：补全缺失的 type: "message"
     if matches!(protocol, Protocol::Responses) {
         let mut patched = 0;
         for item in arr.iter_mut() {
@@ -220,30 +222,80 @@ fn clean_empty_messages(parsed: &mut Value, protocol: Protocol) {
         }
     }
 
-    // 移除 content 为空/空白的项
+    // OpenAI Chat 的 tool-call assistant 使用 null content 更稳定；null 本身保持不变。
+    if matches!(protocol, Protocol::OpenAI) {
+        for item in arr.iter_mut() {
+            let Some(obj) = item.as_object_mut() else {
+                continue;
+            };
+            let is_assistant = obj.get("role").and_then(Value::as_str) == Some("assistant");
+            let has_tool_calls = obj
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .is_some_and(|calls| !calls.is_empty());
+            let has_function_call = obj
+                .get("function_call")
+                .is_some_and(|call| !call.is_null());
+
+            if is_assistant && (has_tool_calls || has_function_call) {
+                if obj
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| s.trim().is_empty())
+                {
+                    obj.insert("content".into(), Value::Null);
+                }
+            }
+        }
+    }
+
     let before = arr.len();
     arr.retain(|item| {
-        let content = item.get("content");
-        match content {
-            Some(Value::String(s)) => !s.trim().is_empty(),
-            Some(Value::Array(a)) => {
-                a.iter().any(|c| {
-                    if let Some(t) = c.get("text").and_then(|t| t.as_str()) {
-                        !t.trim().is_empty()
-                    } else if let Some(t) = c.get("content").and_then(|t| t.as_str()) {
-                        !t.trim().is_empty()
-                    } else {
-                        true
-                    }
-                })
+        let role = item.get("role").and_then(Value::as_str);
+
+        // assistant 的 tool_calls/function_call 是消息主体，绝不能因文本为空而删除。
+        if role == Some("assistant") {
+            let has_tool_calls = item
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .is_some_and(|calls| !calls.is_empty());
+            let has_function_call = item
+                .get("function_call")
+                .is_some_and(|call| !call.is_null());
+            if has_tool_calls || has_function_call {
+                return true;
             }
+        }
+
+        // tool result 与前序 tool call 通过 tool_call_id 配对；空结果也必须保留。
+        if role == Some("tool")
+            && item
+                .get("tool_call_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.is_empty())
+        {
+            return true;
+        }
+
+        match item.get("content") {
+            Some(Value::String(s)) => !s.trim().is_empty(),
+            Some(Value::Array(a)) => a.iter().any(|c| {
+                if let Some(t) = c.get("text").and_then(Value::as_str) {
+                    !t.trim().is_empty()
+                } else if let Some(t) = c.get("content").and_then(Value::as_str) {
+                    !t.trim().is_empty()
+                } else {
+                    true
+                }
+            }),
             None => true,
             _ => true,
         }
     });
+
     let removed = before - arr.len();
     if removed > 0 {
-        tracing::info!(field, removed, "已清洗空白 content 消息项");
+        tracing::info!(field, removed, "已清洗无其它语义载荷的空白 content 消息项");
     }
 }
 
@@ -349,4 +401,126 @@ fn error_response(status: StatusCode, msg: &str) -> Response<Body> {
         axum::http::HeaderValue::from_static("application/json"),
     );
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn keeps_tool_call_assistant_and_normalizes_blank_content_to_null() {
+        let mut body = json!({
+            "messages": [{
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"}
+                }]
+            }]
+        });
+
+        clean_empty_messages(&mut body, Protocol::OpenAI);
+
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0]["content"].is_null());
+        assert_eq!(messages[0]["tool_calls"][0]["id"], "call_1");
+    }
+
+    #[test]
+    fn keeps_tool_call_assistant_with_whitespace_content() {
+        let mut body = json!({
+            "messages": [{
+                "role": "assistant",
+                "content": "   \n\t ",
+                "tool_calls": [{
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"}
+                }]
+            }]
+        });
+
+        clean_empty_messages(&mut body, Protocol::OpenAI);
+
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0]["content"].is_null());
+    }
+
+    #[test]
+    fn keeps_existing_null_tool_call_assistant_unchanged() {
+        let mut body = json!({
+            "messages": [{
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_3",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"}
+                }]
+            }]
+        });
+
+        clean_empty_messages(&mut body, Protocol::OpenAI);
+
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0]["content"].is_null());
+    }
+
+    #[test]
+    fn keeps_legacy_function_call_assistant_and_normalizes_content() {
+        let mut body = json!({
+            "messages": [{
+                "role": "assistant",
+                "content": "",
+                "function_call": {"name": "shell", "arguments": "{}"}
+            }]
+        });
+
+        clean_empty_messages(&mut body, Protocol::OpenAI);
+
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0]["content"].is_null());
+        assert_eq!(messages[0]["function_call"]["name"], "shell");
+    }
+
+    #[test]
+    fn keeps_blank_tool_result_when_tool_call_id_exists() {
+        let mut body = json!({
+            "messages": [{
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": ""
+            }]
+        });
+
+        clean_empty_messages(&mut body, Protocol::OpenAI);
+
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["tool_call_id"], "call_1");
+    }
+
+    #[test]
+    fn removes_plain_blank_messages_without_semantic_payload() {
+        let mut body = json!({
+            "messages": [
+                {"role": "assistant", "content": ""},
+                {"role": "user", "content": "   "},
+                {"role": "user", "content": "keep me"}
+            ]
+        });
+
+        clean_empty_messages(&mut body, Protocol::OpenAI);
+
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"], "keep me");
+    }
 }

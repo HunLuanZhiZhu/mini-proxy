@@ -44,7 +44,7 @@ It is designed for local model gateways, coding-plan APIs, compatibility layers,
 | 🌊 **SSE streaming** | Preserves streaming responses and can detect retryable errors during early stream events |
 | 🔑 **Two API-key modes** | Client-key passthrough or configuration override |
 | 🗺️ **Model mapping** | Maps client-facing model IDs to upstream model IDs |
-| 🧹 **Request cleanup** | Normalizes selected request fields and removes empty content entries |
+| 🧹 **Request cleanup** | Optional semantic-aware cleanup; preserves tool/function messages even when text content is blank |
 | 🧠 **Reasoning-effort injection** | Can force protocol-specific reasoning effort or leave client values untouched |
 | 🧩 **Provider inheritance** | Shared provider settings with per-endpoint overrides |
 | 🪪 **Header injection** | Adds configured headers only when the client did not already provide them |
@@ -142,7 +142,7 @@ A minimal example:
 ~~~toml
 [server]
 listen = "127.0.0.1:7946"
-clean_empty_content = true
+clean_empty_content = false
 
 [log]
 level = "info"

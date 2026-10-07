@@ -7,7 +7,7 @@
 #
 # [server]
 #   listen              本地监听地址，客户端访问 http://<listen>
-#   clean_empty_content 清洗请求体：补全 input 项缺失的 type:"message"（Response 协议），移除 content 为空/空白的项（默认 true）
+#   clean_empty_content 可选清洗：补全 Responses input 缺失的 type:"message"，仅删除没有其它语义载荷的空/空白消息（默认 false）
 #
 # [log]
 #   level           日志级别：trace | debug | info | warn | error
@@ -101,7 +101,7 @@
 
 [server]
 listen = "127.0.0.1:7946"
-clean_empty_content = true
+clean_empty_content = false
 
 [log]
 level = "info"

@@ -18,8 +18,8 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub listen: String,
-    // 清洗请求体中 content 为空/空白的 input(messages) 项，避免上游报错
-    #[serde(default = "default_true")]
+    // 可选清洗：仅删除没有其它语义载荷的空/空白 content 消息。默认关闭。
+    #[serde(default)]
     pub clean_empty_content: bool,
 }
 
@@ -313,5 +313,25 @@ impl Config {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("读取配置文件失败: {}", path.display()))?;
         toml::from_str(&content).with_context(|| "解析配置文件失败".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_empty_content_defaults_to_false() {
+        let cfg: Config = toml::from_str(
+            r#"
+[server]
+listen = "127.0.0.1:7946"
+
+[log]
+"#,
+        )
+        .expect("config should parse");
+
+        assert!(!cfg.server.clean_empty_content);
     }
 }
